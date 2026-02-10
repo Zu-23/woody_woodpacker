@@ -11,6 +11,7 @@
 struct Woody_data
 {
     int fd;
+    long key;
     Elf64_Ehdr *header;
     Elf64_Phdr *p_header;
     Elf64_Phdr *text_segment;
@@ -29,5 +30,7 @@ void find_cave(struct Woody_data *var);
 void read_stub_and_patch(struct Woody_data *var);
 void create_woody(struct Woody_data *var);
 void encrypt_simple_xor(char *data, size_t len);
+uint64_t generate_64bit_key();
+void encrypt_rotate_64(char *data, size_t len, uint64_t key);
 
 #endif
