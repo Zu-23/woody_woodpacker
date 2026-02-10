@@ -3,7 +3,7 @@ global _start
 
 _start:
     pushfq
-   ; push rax
+    push rax            
     push rbx
     push rcx
     push rdx
@@ -19,15 +19,19 @@ _start:
     push r15
     push rbp
 
-    lea rdi, [rel _start]       
+    lea rdi, [rel _start]   
     sub rdi, 0x11111111         
-    mov rcx, 0x22222222   
+    mov rcx, 0x22222222         
+
+    mov rax, 0x1122334455667788 
 
 decrypt_loop:
     test rcx, rcx               
     jz payload_start
     
-    xor byte [rdi], 0xAA        
+    xor byte [rdi], al          
+    ror rax, 8                  
+
     inc rdi                     
     dec rcx                     
     jmp decrypt_loop            
@@ -36,7 +40,7 @@ payload_start:
     mov rax, 1                  
     mov rdi, 1                  
     lea rsi, [rel msg]          
-    mov rdx, 15
+    mov rdx, 15                 
     syscall
 
     pop rbp
@@ -53,10 +57,10 @@ payload_start:
     pop rdx
     pop rcx
     pop rbx
-    ;pop rax
+    pop rax             
     popfq
 
     db 0xe9
-    dd 0xAAAAAAAA              
+    dd 0xAAAAAAAA       
 
-msg: db "woody msg here", 10
+msg: db "....WOODY....", 10
