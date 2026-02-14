@@ -1,25 +1,35 @@
 #include "../woody.h"
 
-
 void check_elf32(Woody_data *var)
 {
     free(var->spec.elf64.ehdr);
-    lseek(var->fd, 0, SEEK_SET);
-    var->spec.elf32.ehdr = malloc(sizeof(Elf32_Ehdr));
+    if ((lseek(var->fd, 0, SEEK_SET)) == -1)
+    {
+        perror("Error lseek for check_elf32\n");
+        exit(1);
+    }
+    if ((var->spec.elf32.ehdr = malloc(sizeof(Elf32_Ehdr))) == NULL)
+    {
+        perror("Error malloc in check_el32\n");
+        exit(1);
+    }
 
     printf("elf 32 treated\n");
-    if (read(var->fd, var->spec.elf32.ehdr, sizeof(Elf32_Ehdr)) == -1)
+    if ((read(var->fd, var->spec.elf32.ehdr, sizeof(Elf32_Ehdr))) == -1)
     {
         perror("Read error");
         exit(1);
     }
 }
 
-
 void check_elf(Woody_data *var)
 {
-    var->spec.elf64.ehdr = malloc(sizeof(Elf64_Ehdr));
-    if (read(var->fd, var->spec.elf64.ehdr, sizeof(Elf64_Ehdr)) == -1)
+    if ((var->spec.elf64.ehdr = malloc(sizeof(Elf64_Ehdr))) == NULL)
+    {
+        perror("Error malloc in check_elf\n");
+        exit(1);
+    }
+    if ((read(var->fd, var->spec.elf64.ehdr, sizeof(Elf64_Ehdr))) == -1)
     {
         perror("Read error");
         exit(1);
@@ -37,4 +47,3 @@ void check_elf(Woody_data *var)
     else
         var->is_32bit = 0;
 }
-

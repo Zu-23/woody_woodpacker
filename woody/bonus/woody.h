@@ -13,6 +13,17 @@ typedef struct
     int fd;
     uint64_t key;
     int is_32bit;
+    int text_index;
+    int stub_len;
+    int cave_size;
+    long cave_start_offset;
+    long after_text_segment_offset;
+    long file_size;
+    char *stub;
+    uint32_t p_jmp;
+    uint32_t p_dist;
+    uint32_t p_size;
+    uint64_t p_key;
     union {
         struct {
             Elf64_Ehdr *ehdr;
@@ -24,16 +35,9 @@ typedef struct
         } elf32;
     } spec;
    union {
-        Elf64_Phdr *text_segment64;
-        Elf32_Phdr *text_segment32;
+       Elf64_Phdr *text_segment64;
+       Elf32_Phdr *text_segment32;
     } phdr;
-    int text_index;
-    int stub_len;
-    int cave_size;
-    long cave_start_offset;
-    long after_text_segment_offset;
-    long file_size;
-    char *stub;
 } Woody_data;
 
 
