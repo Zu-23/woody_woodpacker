@@ -52,5 +52,6 @@ void create_woody(Woody_data *var);
 void encrypt_simple_xor(char *data, size_t len);
 uint64_t generate_64bit_key();
 void encrypt_rotate_64(char *data, size_t len, uint64_t key);
+void encrypt_rotate_32(char *data, size_t len, uint32_t key);
 
 #endif

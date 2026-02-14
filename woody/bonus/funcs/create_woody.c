@@ -4,7 +4,11 @@ void write_to_woody(Woody_data *var, char *new_elf_file)
 {
     int new_elf_fd;
 
-    new_elf_fd = open("woody", O_WRONLY | O_CREAT | O_TRUNC, 0755);
+    if ((new_elf_fd = open("woody", O_WRONLY | O_CREAT | O_TRUNC, 0755)) == -1)
+    {
+        perror("Error open in write_to_woody");
+        exit(1);
+    }
     write(new_elf_fd, new_elf_file, var->cave_start_offset);
     write(new_elf_fd, var->stub, var->stub_len);
     write(new_elf_fd, new_elf_file + var->cave_start_offset + var->stub_len,
@@ -12,12 +16,23 @@ void write_to_woody(Woody_data *var, char *new_elf_file)
     close(new_elf_fd);
 }
 
-void set_size(Elf64_Phdr *p_header, Woody_data *var)
+void set_size(void *p_header, Woody_data *var)
 {
     int idx = var->text_index;
-    p_header[idx].p_filesz += var->stub_len;
-    p_header[idx].p_memsz += var->stub_len;
-    p_header[idx].p_flags |= PF_W;
+    if (var->is_32bit)
+    {
+        Elf32_Phdr *phdr32 = (Elf32_Phdr *)p_header;
+        phdr32[idx].p_filesz += var->stub_len;
+        phdr32[idx].p_memsz += var->stub_len;
+        phdr32[idx].p_flags |= PF_W;
+    }
+    else
+    {
+        Elf64_Phdr *phdr64 = (Elf64_Phdr *)p_header;
+        phdr64[idx].p_filesz += var->stub_len;
+        phdr64[idx].p_memsz += var->stub_len;
+        phdr64[idx].p_flags |= PF_W;
+    }
 }
 
 char *create_new_file(Woody_data *var)
@@ -30,7 +45,7 @@ char *create_new_file(Woody_data *var)
         exit(1);
     }
     if ((new_elf_file = malloc(var->file_size)) == NULL)
-     {
+    {
         perror("Error malloc in create_new_file\n");
         exit(1);
     }
@@ -47,10 +62,11 @@ char *create_new_file(Woody_data *var)
     return (new_elf_file);
 }
 
-void create_woody32(Woody_data *var, char *new_elf_file)
+char* create_woody32(Woody_data *var)
 {
     Elf32_Ehdr *new_elf_header;
     Elf32_Phdr *new_p_header;
+    char *new_elf_file;
 
     new_elf_file = create_new_file(var);
     new_elf_header = (Elf32_Ehdr *)new_elf_file;
@@ -63,13 +79,14 @@ void create_woody32(Woody_data *var, char *new_elf_file)
     char *target_data = new_elf_file + entry_offset;
     if (target_size > 0 && target_size < (size_t)var->file_size)
         encrypt_rotate_32(target_data, target_size, var->key);
+    return (new_elf_file);
 }
 
 void create_woody(Woody_data *var)
 {
     char *new_elf_file;
     if (var->is_32bit)
-        create_woody32(var, new_elf_file);
+        new_elf_file = create_woody32(var);
     else
     {
         Elf64_Ehdr *new_elf_header;
