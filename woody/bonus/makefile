@@ -21,11 +21,13 @@ $(NAME): $(OBJ)
 %.o: %.c woody.h
 	$(CC) $(CFLAGS) -c $< -o $@
 
-stub: $(STUB_BIN)
+stub: $(STUB_BIN) stub32.bin
 
 $(STUB_BIN): $(STUB_SRC)
 	$(NASM) $(NASM_FLAGS) $(STUB_SRC) -o $(STUB_BIN)
 
+stub32.bin: stub32.s 
+	$(NASM) $(NASM_FLAGS) stub32.s -o stub32.bin
 target:
 	$(CC) $(CFLAGS) hello.c -o target
 

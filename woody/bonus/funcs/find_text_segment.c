@@ -24,7 +24,6 @@ void find_text_segment32(Woody_data *var)
         {
             var->phdr.text_segment32 = &var->spec.elf32.phdr[i];
             var->text_index = i;
-            printf("text seg32 indx %d\n", var->text_index);
             break;
         }
     }

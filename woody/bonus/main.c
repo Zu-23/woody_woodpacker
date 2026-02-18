@@ -17,6 +17,8 @@ int main(int argc, char **argv)
     }
     else if (argc == 3)
         var->key = atoi(argv[2]); //dont forget to use libft atoi
+    else if (argc == 2)
+        var->key = generate_64bit_key();
     var->fd = open(argv[1], O_RDONLY);
     if (var->fd < 0)
     {

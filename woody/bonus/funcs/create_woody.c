@@ -3,6 +3,7 @@
 void write_to_woody(Woody_data *var, char *new_elf_file)
 {
     int new_elf_fd;
+    printf("im here?\n");
 
     if ((new_elf_fd = open("woody", O_WRONLY | O_CREAT | O_TRUNC, 0755)) == -1)
     {
@@ -84,6 +85,7 @@ char* create_woody32(Woody_data *var)
 
 void create_woody(Woody_data *var)
 {
+
     char *new_elf_file;
     if (var->is_32bit)
         new_elf_file = create_woody32(var);

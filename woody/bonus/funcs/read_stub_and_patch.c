@@ -47,7 +47,7 @@ void read_stub_and_patch32(Woody_data *var)
     uint32_t distance = get_distance(var);
     uint64_t old_entry = var->spec.elf32.ehdr->e_entry;
     uint64_t new_entry = var->phdr.text_segment32->p_vaddr + var->phdr.text_segment32->p_filesz;
-    int stub_fd = open("stub.bin", O_RDONLY);
+    int stub_fd = open("stub32.bin", O_RDONLY);
 
     if (stub_fd < 0)
     {
@@ -65,6 +65,7 @@ void read_stub_and_patch32(Woody_data *var)
         exit(1);
     }
     close(stub_fd);
+    printf("stub len %d\ncave size %d\n", var->stub_len, var->cave_size);
     if (var->stub_len > var->cave_size)
     {
         perror("Stub too big for cave!\n");
@@ -84,6 +85,7 @@ void read_stub_and_patch32(Woody_data *var)
         {
             *(uint32_t *)&var->stub[i] = var->key;
             printf("key %u\n", *(uint32_t *)&var->stub[i]);
+            // printf("val of key %ld\n", var->key);
             exit(1);
         }
     }
@@ -144,4 +146,6 @@ void read_stub_and_patch(Woody_data *var)
                 *(uint64_t *)&var->stub[i] = var->key;
         }
     }
+        printf("..f.\n");
+
 }
