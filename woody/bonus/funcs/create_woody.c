@@ -74,7 +74,7 @@ char* create_woody32(Woody_data *var)
     new_elf_header->e_entry = var->phdr.text_segment32->p_vaddr + var->phdr.text_segment32->p_filesz;
     new_p_header = (Elf32_Phdr *)(new_elf_file + new_elf_header->e_phoff);
     set_size(new_p_header, var);
-    long entry_offset = var->spec.elf64.ehdr->e_entry;
+    long entry_offset = var->spec.elf32.ehdr->e_entry;
     long end_offset = var->phdr.text_segment32->p_offset + var->phdr.text_segment32->p_filesz;
     size_t target_size = end_offset - entry_offset;
     char *target_data = new_elf_file + entry_offset;
