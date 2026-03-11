@@ -1,8 +1,8 @@
-#include "../woody.h" // Assume this holds your t_woody and t_type_handler structs
+#include "../woody.h" 
 
 void load_stub(t_woody *env)
 {
-    int stub_fd = open("stubs/stub.bin", O_RDONLY);
+    int stub_fd = open("stubs/stub_elf64.bin", O_RDONLY);
     if (stub_fd < 0)
     {
         perror("Error opening stub.bin");
@@ -88,7 +88,7 @@ void patch_stub_64(t_woody *env, uint64_t old_entry, uint64_t new_entry, uint32_
         else if (*ptr == 0x33333333)
         {
             uint64_t *ptr64 = (uint64_t *)(env->stub + i);
-            if (*ptr64 == 0x3333333333333333) // Strict 64-bit check
+            if (*ptr64 == 0x3333333333333333) 
                 *ptr64 = p_key;
         }
     }
@@ -121,12 +121,10 @@ int inject_elf64(t_woody *env, size_t cave_offset)
     uint64_t encrypt_size = original_size - (old_entry - phdr[ndx].p_vaddr);
     encrypt_rotate_64(code_seg_location, encrypt_size, env->key);
 
-    // 4. Safely increase the header sizes
     phdr[ndx].p_filesz += env->stub_size;
     phdr[ndx].p_memsz += env->stub_size;
-    phdr[ndx].p_flags |= PF_W; // Ensure the stub can decrypt memory!
+    phdr[ndx].p_flags |= PF_W; 
 
-    // 5. Patch and Inject
     patch_stub_64(env, old_entry, new_entry, (uint32_t)encrypt_size);
     memcpy((unsigned char *)env->file_data + cave_offset, env->stub, env->stub_size);
     return (1);

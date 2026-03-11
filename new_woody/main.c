@@ -6,9 +6,10 @@
 #include <sys/mman.h>
 
 extern const t_type_handler elf64_type;
-
+extern const t_type_handler elf32_type;
 const t_type_handler *types[] = {
     &elf64_type,
+    &elf32_type,
     NULL
 };
 
@@ -99,6 +100,7 @@ int main(int argc, char **argv)
     {
         if (types[i]->check_magic(env.file_data))
         {
+            printf("entered\n");
             env.handler = (t_type_handler *)types[i];
             break;
         }
@@ -111,7 +113,7 @@ int main(int argc, char **argv)
         exit(1);
     }
     size_t cave_offset = 0;
-
+    printf("type detected: %s\n", env.handler->format_name);
     if (env.handler->parse_headers(&env))
     {
         cave_offset = env.handler->find_cave(&env, env.stub_size);
