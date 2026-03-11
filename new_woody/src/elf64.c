@@ -1,7 +1,5 @@
 #include "../woody.h" // Assume this holds your t_woody and t_type_handler structs
 
-
-
 void load_stub(t_woody *env)
 {
     int stub_fd = open("stubs/stub.bin", O_RDONLY);
@@ -19,7 +17,6 @@ void load_stub(t_woody *env)
         exit(1);
     }
 }
-
 
 int check_magic_elf64(void *file_data)
 {
@@ -54,12 +51,11 @@ int parse_elf64(t_woody *env)
     return 1;
 }
 
-size_t find_cave_elf64(t_woody *env, size_t stub_size)
+size_t find_cave_elf64(t_woody *env, size_t stub_size) // returns offset of cave
 {
     int ndx = env->elf_hdr.text_index;
-    uint64_t phoff = env->elf_hdr.spec.elf64.ehdr->e_phoff;
     Elf64_Phdr *phdr = env->elf_hdr.spec.elf64.phdr;
-    size_t end_of_code = phoff + phdr[ndx].p_offset + phdr[ndx].p_filesz;
+    size_t end_of_code = phdr[ndx].p_offset + phdr[ndx].p_filesz;
     size_t available_padding = phdr[ndx + 1].p_offset - end_of_code;
 
     if (available_padding >= stub_size)
@@ -72,39 +68,32 @@ size_t find_cave_elf64(t_woody *env, size_t stub_size)
     return 0;
 }
 
-uint32_t get_encrypt_size(t_woody *env)
-{
-    Elf64_Ehdr *ehdr = env->elf_hdr.spec.elf64.ehdr;
-    Elf64_Phdr *phdr = env->elf_hdr.spec.elf64.phdr;
-    int ndx = env->elf_hdr.text_index;
-
-    size_t entry_offset = ehdr->e_entry;
-    size_t end_offset = phdr[ndx].p_offset + phdr[ndx].p_filesz;
-    return (uint32_t)(end_offset - entry_offset);
-}
 
 
-void patch_stub_64(t_woody *env, uint64_t old_entry, uint64_t new_entry)
+void patch_stub_64(t_woody *env, uint64_t old_entry, uint64_t new_entry, uint32_t p_encrypt_size)
 {
     uint32_t p_dist = (uint32_t)(new_entry - old_entry);
-    uint32_t p_encrypt_size = get_encrypt_size(env);
     uint64_t p_key = env->key;
-    for (size_t i = 0; i < env->stub_size - 4; i++)
+    
+    // Changed to - 8 to safely write a 64-bit key
+    for (size_t i = 0; i < env->stub_size - 8; i++) 
     {
         uint32_t *ptr = (uint32_t *)(env->stub + i);
         if (*ptr == 0x11111111)
             *ptr = p_dist;
         else if (*ptr == 0x22222222)
-            *ptr = p_encrypt_size;
+            *ptr = p_encrypt_size; // Now uses the passed parameter!
         else if (*ptr == 0xAAAAAAAA)
-            *ptr = (uint32_t)(new_entry - (old_entry + i + 4));
+            *ptr = (uint32_t)(old_entry - (new_entry + i + 4));
         else if (*ptr == 0x33333333)
         {
             uint64_t *ptr64 = (uint64_t *)(env->stub + i);
-            *ptr64 = p_key;
+            if (*ptr64 == 0x3333333333333333) // Strict 64-bit check
+                *ptr64 = p_key;
         }
     }
 }
+
 
 void encrypt_rotate_64(void *data, size_t len, uint64_t key)
 {
@@ -120,20 +109,28 @@ int inject_elf64(t_woody *env, size_t cave_offset)
     Elf64_Ehdr *ehdr = env->elf_hdr.spec.elf64.ehdr;
     Elf64_Phdr *phdr = env->elf_hdr.spec.elf64.phdr;
     int ndx = env->elf_hdr.text_index;
-    uint64_t new_entry = phdr[ndx].p_vaddr + phdr[ndx].p_filesz;
-    uint64_t old_entry = ehdr->e_entry;
-    void *code_seg = (unsigned char *)env->file_data + phdr[ndx].p_offset; 
 
+    uint64_t original_size = phdr[ndx].p_filesz;
+    uint64_t old_entry = ehdr->e_entry;
+    uint64_t new_entry = phdr[ndx].p_vaddr + phdr[ndx].p_filesz;
     ehdr->e_entry = new_entry;
+
+    uint64_t entry_file_offset = phdr[ndx].p_offset + (old_entry - phdr[ndx].p_vaddr);
+
+    void *code_seg_location = (unsigned char *)env->file_data + entry_file_offset;
+    uint64_t encrypt_size = original_size - (old_entry - phdr[ndx].p_vaddr);
+    encrypt_rotate_64(code_seg_location, encrypt_size, env->key);
+
+    // 4. Safely increase the header sizes
     phdr[ndx].p_filesz += env->stub_size;
     phdr[ndx].p_memsz += env->stub_size;
-    encrypt_rotate_64(code_seg, phdr[ndx].p_filesz, env->key);
-    patch_stub_64(env, old_entry, new_entry);
+    phdr[ndx].p_flags |= PF_W; // Ensure the stub can decrypt memory!
+
+    // 5. Patch and Inject
+    patch_stub_64(env, old_entry, new_entry, (uint32_t)encrypt_size);
     memcpy((unsigned char *)env->file_data + cave_offset, env->stub, env->stub_size);
     return (1);
 }
-
-
 
 const t_type_handler elf64_type = {
     .check_magic = check_magic_elf64,

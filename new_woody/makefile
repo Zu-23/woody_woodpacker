@@ -1,17 +1,18 @@
-NAME =			woody_woodpacker
-CC =			gcc
-CFLAGS =		-Wall -Wextra -Werror
-NASM =			nasm
-NASM_FLAGS =	-f bin
-SRC_DIR =		src
-UTIL_DIR =		src/utils
-STUB_DIR =		stubs
-STUB_SRC =		$(wildcard $(STUB_DIR)/*.s)
-STUB_BIN =		$(STUB_SRC:.s=.bin)
-SRC =			main.c $(wildcard $(SRC_DIR)/*.c) $(wildcard $(UTIL_DIR)/*.c)
-OBJ =			$(SRC:.c=.o)
+NAME =          woody_woodpacker
+CC =            gcc
+CFLAGS =        -Wall -Wextra -Werror
+NASM =          nasm
+NASM_FLAGS =    -f bin
+SRC_DIR =       src
+UTIL_DIR =      src/utils
+STUB_DIR =      stubs
 
-all: $(NAME)  stub
+STUB_SRC =      $(wildcard $(STUB_DIR)/*.s)
+STUB_BIN =      $(STUB_SRC:.s=.bin)
+SRC =           main.c $(wildcard $(SRC_DIR)/*.c) $(wildcard $(UTIL_DIR)/*.c)
+OBJ =           $(SRC:.c=.o)
+
+all: $(NAME) stub
 
 $(NAME): $(OBJ)
 	$(CC) $(CFLAGS) $(OBJ) -o $(NAME)
@@ -19,14 +20,17 @@ $(NAME): $(OBJ)
 %.o: %.c woody.h
 	$(CC) $(CFLAGS) -c $< -o $@
 
-stub:  $(STUB_BIN)
+stub: $(STUB_BIN)
 
-$(STUB_BIN): $(STUB_SRC)
+$(STUB_DIR)/%.bin: $(STUB_DIR)/%.s
 	$(NASM) $(NASM_FLAGS) $< -o $@
 
 clean:
-	rm -f $(OBJ)
+	rm -f $(OBJ) woody stubs/*.bin
+
 fclean: clean
-	rm -f $(NAME)	
+	rm -f $(NAME) woody
+
 re: fclean all
-.PHONY: all clean fclean re
+
+.PHONY: all clean fclean re stub
