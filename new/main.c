@@ -1,8 +1,10 @@
 #include "./woody.h"
 
-void encrypt_section(unsigned char *buffer, uint64_t offset, uint64_t size) {
-    for (uint64_t i = offset; i < offset+size; i++) {
-        buffer[i] ^= 0x42; 
+void encrypt_section(unsigned char *buffer, uint64_t offset, uint64_t size, uint64_t key) {
+    unsigned char *key_bytes = (unsigned char *)&key;
+    
+    for (size_t i = 0; i < size; i++) {
+        buffer[i] ^= key_bytes[i % 4]; 
     }
 }
 
@@ -11,7 +13,7 @@ int read_header(Woody_data *data){
 
     buffer = NULL;
     off_t size = lseek(data->fd, 0, SEEK_END);
-    buffer = malloc(size);
+    buffer = malloc(size+4096);
     if (!buffer){
         perror("Error malloc in check_magic_number\n");
         return (2);
@@ -32,28 +34,57 @@ int read_header(Woody_data *data){
     }
 
     data->elfHeader = elfHeader;
-    // puts("aaaaaaaaaaaaaaaaaa");
-    // printf("%02x %02x %02x\n", buffer[0], buffer[1], buffer[2], buffer[3]);
     if (buffer[0] == 0x7f && buffer[1] == 'E' && buffer[2] == 'L' && buffer[3] == 'F'){ // .ELF
         data->elfHeader->magic = 1;
         if (buffer[4] == 1){
             data->elfHeader->arch = 1;
             data->elfHeader->entry_offset = *(unsigned int *)(buffer + 24);
         }
-        else if (buffer[4] == 2){ //finish this first
-            // puts("everything good\n");
+        else if (buffer[4] == 2){
             data->elfHeader->arch = 2;
-            data->elfHeader->entry_offset = *(unsigned long long *)(buffer + 24);
-            data->elfHeader->header_table_offset = *(unsigned long long *)(buffer + 32);
-            data->elfHeader->section_header_table_offset = *(unsigned long long *)(buffer + 40);
-            
-            printf("%llu\n", data->elfHeader->entry_offset);
-            printf("Program Entry Point: 0x%llx\n", data->elfHeader->entry_offset);
-            printf("Program Header Table Offset: 0x%llx\n", data->elfHeader->header_table_offset);
-            printf("Program Sectin Header Table Offset: 0x%llx\n", data->elfHeader->section_header_table_offset);
+            // let me save my original entry point
+            data->elfHeader->entry_offset = *(uint64_t *)(buffer + 24);
+            uint64_t original_entry_point = data->elfHeader->entry_offset;
+
+            // now i will find the pt_note and convert it to pt_load
 
             uint16_t ph_num = *(uint16_t *)(buffer + 56);
             printf("Number of Program Headers: %d\n", ph_num);
+
+            data->elfHeader->header_table_offset = *(uint64_t *)(buffer + 32);
+            uint64_t ph_off = data->elfHeader->header_table_offset;
+            printf("Program Headers Offset: %d\n", ph_off);
+
+            uint16_t ph_size = *(uint16_t *)(buffer + 54);
+            printf("number of segments: %d\n", ph_num);
+            for (int i = 0; i < ph_num; i++) {
+                // Pointer to current Program Header
+                unsigned char *ph = buffer + ph_off + (i * ph_size);
+
+                // Check if it is a LOAD segment (p_type == 1)
+                uint64_t p_type = *(uint64_t *)(ph + 0);
+
+                if (p_type == 4) { // pt_note
+                    *(uint64_t *)(ph + 0) = 1; // now its pt_load
+                    *(uint64_t *)(ph + 4) = 7;
+                    *(uint64_t *)(ph + 16) = size + 0xc0000000; //virtual address
+                    *(uint64_t *)(ph + 16) = *(uint64_t *)(ph + 16); // phisical address
+                    *(uint64_t *)(ph + 32) = 200; // stub size
+                    *(uint64_t *)(ph + 40) = 200; // stub size
+                    *(uint64_t *)(ph + 48) = 4096;
+
+                    *(uint64_t *)(ph + 8) = size; // the location of the stub
+                    // Save the new entry point for the next step!
+                    uint64_t new_entry_point = *(uint64_t *)(ph + 16);
+                    break; // We only need to hijack one, so exit the loop
+                }
+            }
+            data->elfHeader->section_header_table_offset = *(uint64_t *)(buffer + 40);
+            
+            // printf("%llu\n", data->elfHeader->entry_offset);
+            // printf("Program Entry Point: 0x%llx\n", data->elfHeader->entry_offset);
+            // printf("Program Header Table Offset: 0x%llx\n", data->elfHeader->header_table_offset);
+            // printf("Program Sectin Header Table Offset: 0x%llx\n", data->elfHeader->section_header_table_offset);
 
             uint16_t section_header_size = *(uint16_t *)(buffer + 58);
             printf("size of section header: %d\n", section_header_size);
@@ -64,8 +95,7 @@ int read_header(Woody_data *data){
             uint16_t string_table_index = *(uint16_t *)(buffer + 62);
             printf("offset of string table: %d\n", string_table_index);
 
-            uint64_t strtable_header_pos = data->elfHeader->section_header_table_offset + 
-                                        (string_table_index * section_header_size);
+            uint64_t strtable_header_pos = data->elfHeader->section_header_table_offset + (string_table_index * section_header_size);
             
             unsigned char sh_entry[64]; // buffer for one section header
             
@@ -105,29 +135,9 @@ int read_header(Woody_data *data){
                 }
             }
 
-            // 1. We need to make the segments WRITABLE so the stub can decrypt .text and .rodata
-            uint64_t ph_off = data->elfHeader->header_table_offset;
+           
             // uint16_t ph_num = *(uint16_t *)(buffer + 56);
-            uint16_t ph_size = *(uint16_t *)(buffer + 54); // e_phentsize
-            printf("number of segments: %d\n", ph_num);
-            for (int i = 0; i < ph_num; i++) {
-                // Pointer to current Program Header
-                unsigned char *ph = buffer + ph_off + (i * ph_size);
-                
-                // Check if it is a LOAD segment (p_type == 1)
-                uint32_t p_type = *(uint32_t *)(ph + 0);
-                
-                if (p_type == 1) { // PT_LOAD
-                    // Get current flags (p_flags at offset 4)
-                    uint32_t flags = *(uint32_t *)(ph + 4);
-                    printf("Current permission 0x%x\n", flags);
-                    // Add Write Permission (PF_W = 2)
-                    // We OR it (|) so we don't lose Read/Execute permissions
-                    *(uint32_t *)(ph + 4) = flags | 2; 
-                    
-                    printf("Segment %d: Added Write Flag (New Flags: 0x%x)\n", i, flags | 2);
-                }
-            }
+            
 
             // 3. Write back to file
             off_t size = lseek(data->fd, 0, SEEK_END);
@@ -192,15 +202,7 @@ int main(int argc, char **argv)
     int type = read_header(var);
     if (type == 1)
         handle_elf(var);
-    // puts("all good");
-    // else if (type = 2)
-    //     handle_pe(var);
 
-    // check_elf(var);
-    // find_text_segment(var);
-    // find_cave(var);
-    // read_stub_and_patch(var);
-    // create_woody(var);
 
     close(var->fd);
     return (0);

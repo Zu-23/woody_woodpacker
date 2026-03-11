@@ -26,3 +26,6 @@ void tea_encrypt(uint32_t v[2], uint32_t k[4]) {
     v[0] = v0;
     v[1] = v1;
 }
+
+
+/// notes later if you found .rodata change the variable in stub to let it know it exist seem goes for the case if you found .data
