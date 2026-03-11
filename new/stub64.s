@@ -10,25 +10,25 @@ _start:
     push r11
     pushfq
 
-    ; Load the 32-bit Master Key into EAX
-    mov eax, 0xDDDDDDDD 
-
-    ; 2. DECRYPT .TEXT
-    mov rdi, 0xAAAAAAAAAAAAAAA1  ; Placeholder for .text Address
-    mov rcx, 0xBBBBBBBBBBBBBBB1  ; Placeholder for .text Size
+    mov eax, 0xDDDDDDD1 
+    mov rdi, 0xAAAAAAAAAAAAAAA1  
+    mov rcx, 0xBBBBBBBBBBBBBBB1  
     call decrypt_chunk
 
-    ; 3. DECRYPT .RODATA
-    mov rdi, 0xAAAAAAAAAAAAAAA2  ; Placeholder for .rodata Address
-    mov rcx, 0xBBBBBBBBBBBBBBB2  ; Placeholder for .rodata Size
+    mov rdi, 0xAAAAAAAAAAAAAAA2  
+    mov rcx, 0xBBBBBBBBBBBBBBB2  
     call decrypt_chunk
 
-    ; 4. DECRYPT .DATA
-    mov rdi, 0xAAAAAAAAAAAAAAA3  ; Placeholder for .data Address
-    mov rcx, 0xBBBBBBBBBBBBBBB3  ; Placeholder for .data Size
+    mov rdi, 0xAAAAAAAAAAAAAAA3  
+    mov rcx, 0xBBBBBBBBBBBBBBB3  
     call decrypt_chunk
 
-    ; 3. Restore CPU state
+    mov rax, 1                  ; sys_write
+    mov rdi, 1                  ; stdout
+    lea rsi, [rel woody]        ; load string
+    mov rdx, 14                 ; length
+    syscall     
+
     popfq
     pop r11
     pop rcx
@@ -37,33 +37,22 @@ _start:
     pop rdi
     pop rax
 
-    mov rax, 0xCCCCCCCCCCCCCCCC ; Placeholder for Original Entry Point
+    mov rax, 0xCCCCCCCCCCCCCCC2 
     push rax
     ret
 
+; --- SUBROUTINE (Stays at the bottom) ---
 decrypt_chunk:
     test rcx, rcx
     jz .done
-
 .loop:
-    xor byte [rdi], al          ; Decrypt one byte
-    ror eax, 8                  ; Rotate key
-
-    inc rdi                     ; Move to next byte (Using 64-bit RDI!)
-    dec rcx                     ; Decrease counter (Using 64-bit RCX!)
-    jnz .loop                   ; If RCX is not zero, loop again
-    ret
-
-print_msg:
-        mov rax, 1                  ; syscall number for sys_write
-        mov rdi, 1                  ; file descriptor 1 (stdout)
-        
-        lea rsi, [rel woody]    
-        
-        mov rdx, 14                 ; length of the string
-        syscall     
-
+    xor byte [rdi], al
+    ror eax, 8
+    inc rdi
+    dec rcx
+    jnz .loop
 .done:
     ret
 
+; --- DATA ---
 woody: db "....WOODY....", 10

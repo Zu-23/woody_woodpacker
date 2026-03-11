@@ -1,6 +1,6 @@
 #include "./woody.h"
 
-void encrypt_section(unsigned char *buffer, uint64_t offset, uint64_t size, uint64_t key) {
+void encrypt_section(unsigned char *buffer, uint64_t offset, uint64_t size, uint32_t key) {
     unsigned char *key_bytes = (unsigned char *)&key;
     
     for (size_t i = 0; i < size; i++) {
@@ -67,8 +67,8 @@ int read_header(Woody_data *data){
                 if (p_type == 4) { // pt_note
                     *(uint64_t *)(ph + 0) = 1; // now its pt_load
                     *(uint64_t *)(ph + 4) = 7;
-                    *(uint64_t *)(ph + 16) = size + 0xc0000000; //virtual address
-                    *(uint64_t *)(ph + 16) = *(uint64_t *)(ph + 16); // phisical address
+                    *(uint64_t *)(ph + 16) = size + 0xc0000000; // virtual address
+                    *(uint64_t *)(ph + 24) = *(uint64_t *)(ph + 24); // phisical address
                     *(uint64_t *)(ph + 32) = 200; // stub size
                     *(uint64_t *)(ph + 40) = 200; // stub size
                     *(uint64_t *)(ph + 48) = 4096;
@@ -112,32 +112,49 @@ int read_header(Woody_data *data){
 
             uint64_t sh_table_start = data->elfHeader->section_header_table_offset;
 
+            sections Sections;
+            Sections.text = 0;
+            Sections.data = 0;
+            Sections.rodata = 0;
+
             for (int i = 0; i < num_sections; i++) {
                 // Read Section Header i
                 lseek(data->fd, sh_table_start + (i * section_header_size), SEEK_SET);
                 read(data->fd, sh_entry, 64);
 
-                // Get Name Index (sh_name @ 0x00)
                 uint32_t name_idx = *(uint32_t *)(sh_entry + 0);
-                
-                // Get Section Name
                 char *name = strtab + name_idx;
 
                 // Check if it is .text or .data or .rodata
-                if (!strcmp(name, ".text") || !strcmp(name, ".data") || !strcmp(name, ".rodata")) {
-                    uint64_t sh_offset = *(uint64_t *)(sh_entry + 24); // sh_offset
-                    uint64_t sh_size   = *(uint64_t *)(sh_entry + 32); // sh_size
+                if (!strcmp(name, ".text")) {
+                    Sections.text = 1;
+                    uint64_t sh_offset = *(uint64_t *)(sh_entry + 24);
+                    uint64_t sh_size   = *(uint64_t *)(sh_entry + 32);
 
                     printf("Found %s at offset 0x%lx size 0x%lx\n", name, sh_offset, sh_size);
-                    
-                    // CALL ENCRYPTION
-                    encrypt_section(buffer, sh_offset, sh_size);
+                    encrypt_section(buffer, sh_offset, sh_size, data->key);
+                }
+                else if (!strcmp(name, ".data")) {
+                    Sections.data = 1;
+                    uint64_t sh_offset = *(uint64_t *)(sh_entry + 24);
+                    uint64_t sh_size   = *(uint64_t *)(sh_entry + 32);
+
+                    printf("Found %s at offset 0x%lx size 0x%lx\n", name, sh_offset, sh_size);
+                    encrypt_section(buffer, sh_offset, sh_size, data->key);
+                }
+                else if (!strcmp(name, ".rodata")) {
+                    Sections.rodata = 1;
+                    uint64_t sh_offset = *(uint64_t *)(sh_entry + 24);
+                    uint64_t sh_size   = *(uint64_t *)(sh_entry + 32);
+
+                    printf("Found %s at offset 0x%lx size 0x%lx\n", name, sh_offset, sh_size);
+                    encrypt_section(buffer, sh_offset, sh_size, data->key);
                 }
             }
-
-           
-            // uint16_t ph_num = *(uint16_t *)(buffer + 56);
-            
+            // now i need to update my stub address to point to key and adress and size of sections it should decrypt
+            // and also point back to the original entry point and that should be all
+            // ofc i will need to add a signature so i don't encrypt more then 1 time
+            // and later on of course i need to add the compress algo
 
             // 3. Write back to file
             off_t size = lseek(data->fd, 0, SEEK_END);
@@ -199,6 +216,11 @@ int main(int argc, char **argv)
         return (3);
     }
 
+    if (argc >= 3)
+        var->key = atoi(argv[2]);
+    else
+        var->key = 1337;
+
     int type = read_header(var);
     if (type == 1)
         handle_elf(var);
@@ -207,4 +229,3 @@ int main(int argc, char **argv)
     close(var->fd);
     return (0);
 }
-
