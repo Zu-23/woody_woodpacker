@@ -7,9 +7,11 @@
 
 extern const t_type_handler elf64_type;
 extern const t_type_handler elf32_type;
+extern const t_type_handler pe64_type;
 const t_type_handler *types[] = {
     &elf64_type,
     &elf32_type,
+    &pe64_type,
     NULL
 };
 

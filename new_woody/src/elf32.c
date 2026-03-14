@@ -23,15 +23,14 @@ void encrypt_rotate_32(void *data, size_t len, uint32_t key)
     for (size_t i = 0; i < len; i++)
     {
         ((unsigned char *)data)[i] ^= (unsigned char)(key & 0xFF);
-        key = (key >> 8) | (key << 24); // 32-bit rotation!
+        key = (key >> 8) | (key << 24); 
     }
 }
 
-// 32-bit Patcher
 void patch_stub_32(t_woody *env, uint32_t old_entry, uint32_t new_entry, uint32_t p_encrypt_size)
 {
     uint32_t p_dist = new_entry - old_entry;
-    uint32_t p_key = (uint32_t)env->key; // Grab lower 32 bits of your key
+    uint32_t p_key = (uint32_t)env->key;
     
     for (size_t i = 0; i < env->stub_size - 4; i++) 
     {
@@ -62,7 +61,6 @@ int inject_elf32(t_woody *env, size_t cave_offset)
     void *code_seg_location = (unsigned char *)env->file_data + entry_file_offset;
     uint32_t encrypt_size = original_size - (old_entry - phdr[ndx].p_vaddr);
     
-    // Encrypt with 32-bit logic
     encrypt_rotate_32(code_seg_location, encrypt_size, (uint32_t)env->key);
 
     phdr[ndx].p_filesz += env->stub_size;
@@ -74,7 +72,6 @@ int inject_elf32(t_woody *env, size_t cave_offset)
     return (1);
 }
 
-// 32-bit Headers parsing (similar to your 64-bit)
 int parse_elf32(t_woody *env)
 {
     Elf32_Ehdr *ehdr = (Elf32_Ehdr *)env->file_data;
@@ -89,7 +86,6 @@ int parse_elf32(t_woody *env)
             break;
         }
     }
-    // Make sure you update load_stub to load 'stub32.bin' when the architecture is 32-bit!
     load_stub(env); 
     return 1;
 }
@@ -116,7 +112,6 @@ size_t find_cave_elf32(t_woody *env, size_t stub_size)
     return 0;
 }
 
-// Handler
 const t_type_handler elf32_type = {
     .check_magic = check_magic_elf32,
     .parse_headers = parse_elf32,
