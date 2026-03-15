@@ -10,23 +10,41 @@ _start:
     push r11
     pushfq
 
-    mov eax, 0xDDDDDDD1 
-    mov rdi, 0xAAAAAAAAAAAAAAA1  
-    mov rcx, 0xBBBBBBBBBBBBBBB1  
+    mov rax, 1
+    mov rdi, 1
+    lea rsi, [rel woody]
+    mov rdx, 14
+    syscall
+
+    mov eax, 0xDDDDDDD1
+    lea rdi, [rel _start]
+    sub rdi, 0xAAAAAAAAAAAAAAA1  
+    mov rcx, 0xBBBBBBBBBBBBBBB1
+    test rcx, rcx
     call decrypt_chunk
 
-    mov rdi, 0xAAAAAAAAAAAAAAA2  
+    mov rax, 1
+    mov rdi, 1
+    lea rsi, [rel woody]
+    mov rdx, 14
+    syscall
+
+    lea rdi, [rel _start]
+    sub rdi, 0xAAAAAAAAAAAAAAA2
     mov rcx, 0xBBBBBBBBBBBBBBB2  
+    test rcx, rcx
     call decrypt_chunk
 
-    mov rdi, 0xAAAAAAAAAAAAAAA3  
+    lea rdi, [rel _start]
+    sub rdi, 0xAAAAAAAAAAAAAAA3
     mov rcx, 0xBBBBBBBBBBBBBBB3  
+    test rcx, rcx
     call decrypt_chunk
 
-    mov rax, 1                  ; sys_write
-    mov rdi, 1                  ; stdout
-    lea rsi, [rel woody]        ; load string
-    mov rdx, 14                 ; length
+    mov rax, 1
+    mov rdi, 1
+    lea rsi, [rel woody]
+    mov rdx, 14
     syscall     
 
     popfq
@@ -37,11 +55,11 @@ _start:
     pop rdi
     pop rax
 
-    mov rax, 0xCCCCCCCCCCCCCCC2 
+    lea rax, [rel _start]
+    add rax, 0xCCCCCCCCCCCCCCCC
     push rax
     ret
 
-; --- SUBROUTINE (Stays at the bottom) ---
 decrypt_chunk:
     test rcx, rcx
     jz .done
@@ -54,5 +72,4 @@ decrypt_chunk:
 .done:
     ret
 
-; --- DATA ---
 woody: db "....WOODY....", 10
