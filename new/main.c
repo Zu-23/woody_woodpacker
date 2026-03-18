@@ -1,7 +1,7 @@
 #include "./woody.h"
 unsigned char sig[7] = "meljira";
 uint64_t new_entry_point;
-uint64_t new_ventry_point;
+// uint64_t new_ventry_point;
 int stub = 0;
 
 void encrypt_section(unsigned char *buffer, uint64_t offset, uint64_t size, uint32_t key) {
@@ -36,17 +36,29 @@ int my_strncmp(unsigned char *dest, unsigned char *src, int size){
 void patch_stub(unsigned char *stub, size_t len, uint64_t text_va, uint64_t text_sz, 
                 uint64_t ro_va, uint64_t ro_sz, uint64_t data_va, uint64_t data_sz, 
                 uint64_t oep, uint32_t key) {
-                    printf("text=[%lx] p_dist=[%lx]", text_va, oep - new_ventry_point);
+    printf("text=[%lx] p_dist=[%lx]\n", text_va, oep - new_entry_point);
     for (size_t i = 0; i < len - 8; i++) {
         uint64_t *ptr = (uint64_t *)&stub[i];
         // We need the DISTANCE from stub to section
-        if (*ptr == 0xAAAAAAAAAAAAAAA1) *ptr = new_entry_point - text_va;
-        else if (*ptr == 0xAAAAAAAAAAAAAAA2) *ptr = (ro_va == 0) ? 0 : new_entry_point - ro_va;  
-        else if (*ptr == 0xAAAAAAAAAAAAAAA3) *ptr = (data_va == 0) ? 0 : new_entry_point - data_va;
+        if (*ptr == 0xAAAAAAAAAAAAAAA1){
+            printf("0xAAAAAAAAAAAAAAA1: %lx\n", new_entry_point - text_va);
+            *ptr = new_entry_point - text_va;
+        }
+        else if (*ptr == 0xAAAAAAAAAAAAAAA2){
+            printf("0xAAAAAAAAAAAAAAA2: %lx\n", new_entry_point - ro_va);
+            *ptr = (ro_va == 0) ? 0 : new_entry_point - ro_va;  
+        }
+        else if (*ptr == 0xAAAAAAAAAAAAAAA3){
+            printf("0xAAAAAAAAAAAAAAA3: %lx\n", new_entry_point - data_va);
+            *ptr = (data_va == 0) ? 0 : new_entry_point - data_va;
+        }
         else if (*ptr == 0xBBBBBBBBBBBBBBB1) *ptr = text_sz;
         else if (*ptr == 0xBBBBBBBBBBBBBBB2) *ptr = ro_sz;
         else if (*ptr == 0xBBBBBBBBBBBBBBB3) *ptr = data_sz;
-        else if (*ptr == 0xCCCCCCCCCCCCCCCC) *ptr = oep - new_ventry_point;
+        else if (*ptr == 0xCCCCCCCCCCCCCCCC){
+            printf("replace the oep %lx\n", oep-new_entry_point);
+            *ptr = oep - new_entry_point;
+        } 
         else if (*(uint32_t *)ptr == 0xDDDDDDDD) *(uint32_t *)ptr = key;
     }
 }
@@ -127,18 +139,19 @@ int read_header(Woody_data *data){
                 }
                 if (p_type == 4 && stub == 0) { // pt_note
                     stub = 1;
+                    
                     *(uint32_t *)(ph + 0) = 1; // now its pt_load
                     *(uint32_t *)(ph + 4) = 7;
-                    new_ventry_point = size + 0xc0000000;
-                    *(uint64_t *)(ph + 16) = size + 0xc0000000; // virtual address
-                    *(uint64_t *)(ph + 24) = *(uint64_t *)(ph + 24); // phisical address
+
+                    *(uint64_t *)(ph + 8) = size; // the location of the stub
+                    *(uint64_t *)(ph + 16) = 0xc0000000 + size; // virtual address
+                    *(uint64_t *)(ph + 24) = 0xc0000000 + size; // phisical address
                     *(uint64_t *)(ph + 32) = stub_size; // stub size
                     *(uint64_t *)(ph + 40) = stub_size; // stub size
                     *(uint64_t *)(ph + 48) = 4096;
-
-                    *(uint64_t *)(ph + 8) = size; // the location of the stub
-                    // Save the new entry point for the next step!
+                    
                     new_entry_point = *(uint64_t *)(ph + 16);
+                    printf("new entry point address: %lx\n", new_entry_point);
                 }
             }
             data->elf64_hdr->e_shoff = *(uint64_t *)(buffer + 40);
@@ -185,27 +198,33 @@ int read_header(Woody_data *data){
                 // Check if it is .text or .data or .rodata
                 if (!strcmp(name, ".text")) {
                     Sections.text = 1;
+                    Sections.textPAddress = *(uint64_t *)(sh_entry + 8);
                     Sections.textAddress = *(uint64_t *)(sh_entry + 16);
                     Sections.textSize  = *(uint64_t *)(sh_entry + 32);
+                    printf("text: %lx %lx %lx\n", Sections.textPAddress, Sections.textAddress, Sections.textSize);
 
                     printf("Found %s at offset 0x%lx size 0x%lx\n", name, Sections.textAddress, Sections.textSize);
-                    encrypt_section(buffer, Sections.textAddress, Sections.textSize, data->key);
+                    // encrypt_section(buffer, Sections.textAddress, Sections.textSize, data->key);
                 }
                 else if (!strcmp(name, ".data")) {
                     Sections.data = 1;
+                    Sections.dataPAddress = *(uint64_t *)(sh_entry + 8);
                     Sections.dataAddress = *(uint64_t *)(sh_entry + 16);
                     Sections.dataSize   = *(uint64_t *)(sh_entry + 32);
+                    printf(".data: %lx %lx %lx\n", Sections.dataPAddress, Sections.dataAddress, Sections.dataSize);
 
                     printf("Found %s at offset 0x%lx size 0x%lx\n", name, Sections.dataAddress, Sections.dataSize);
-                    encrypt_section(buffer, Sections.dataAddress, Sections.dataSize, data->key);
+                    // encrypt_section(buffer, Sections.dataAddress, Sections.dataSize, data->key);
                 }
                 else if (!strcmp(name, ".rodata")) {
                     Sections.rodata = 1;
+                    Sections.roPAddress = *(uint64_t *)(sh_entry + 8);
                     Sections.roAddress = *(uint64_t *)(sh_entry + 16);
                     Sections.roSize    = *(uint64_t *)(sh_entry + 32);
+                    printf("rodata: %lx %lx %lx\n", Sections.roPAddress, Sections.roAddress, Sections.roSize);
 
                     printf("Found %s at offset 0x%lx size 0x%lx\n", name, Sections.roAddress, Sections.roSize);
-                    encrypt_section(buffer, Sections.roAddress, Sections.roSize, data->key);
+                    // encrypt_section(buffer, Sections.roAddress, Sections.roSize, data->key);
                 }
                 // else if (!strcmp(name, ".symtab ")) {
                 //     Sections.symtab = 1;
@@ -244,7 +263,7 @@ int read_header(Woody_data *data){
                 free(buffer);
                 exit(2);
             }
-            write(fd, buffer, size+4096);
+            write(fd, buffer, size+stub_size);
             free(strtab);
         }
         free(buffer);
