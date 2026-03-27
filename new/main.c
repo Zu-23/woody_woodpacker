@@ -4,11 +4,13 @@ uint64_t new_entry_point;
 // uint64_t new_ventry_point;
 int stub = 0;
 
-void encrypt_section(unsigned char *buffer, uint64_t offset, uint64_t size, uint32_t key) {
-    unsigned char *key_bytes = (unsigned char *)&key;
-    
-    for (size_t i = offset; i < offset+size; i++) {
-        buffer[i] ^= key_bytes[i % 4]; 
+void encrypt_section(unsigned char *buffer, uint64_t offset, uint64_t size, uint64_t key) {
+    printf("key=[%lu]\n", key);
+    printf("start=[%lu] end=[%lu]\n", offset, offset+size);
+    for (size_t i = offset; i < offset+size; i++)
+    {
+        ((unsigned char *)buffer)[i] ^= (unsigned char)(key & 0xFF);
+        key = (key >> 8) | (key << 56);
     }
 }
 
@@ -35,7 +37,7 @@ int my_strncmp(unsigned char *dest, unsigned char *src, int size){
 
 void patch_stub(unsigned char *stub, size_t len, uint64_t text_va, uint64_t text_sz, 
                 uint64_t ro_va, uint64_t ro_sz, uint64_t data_va, uint64_t data_sz, 
-                uint64_t oep, uint32_t key) {
+                uint64_t oep, uint64_t key) {
     printf("text=[%lx] p_dist=[%lx]\n", text_va, oep - new_entry_point);
     for (size_t i = 0; i < len - 8; i++) {
         uint64_t *ptr = (uint64_t *)&stub[i];
@@ -46,20 +48,23 @@ void patch_stub(unsigned char *stub, size_t len, uint64_t text_va, uint64_t text
         }
         else if (*ptr == 0xAAAAAAAAAAAAAAA2){
             printf("0xAAAAAAAAAAAAAAA2: %lx\n", new_entry_point - ro_va);
-            *ptr = (ro_va == 0) ? 0 : new_entry_point - ro_va;  
+            *ptr = (ro_sz == 0) ? 0 : new_entry_point - ro_va;  
         }
         else if (*ptr == 0xAAAAAAAAAAAAAAA3){
             printf("0xAAAAAAAAAAAAAAA3: %lx\n", new_entry_point - data_va);
-            *ptr = (data_va == 0) ? 0 : new_entry_point - data_va;
+            *ptr = (data_sz == 0) ? 0 : new_entry_point - data_va;
         }
         else if (*ptr == 0xBBBBBBBBBBBBBBB1) *ptr = text_sz;
         else if (*ptr == 0xBBBBBBBBBBBBBBB2) *ptr = ro_sz;
         else if (*ptr == 0xBBBBBBBBBBBBBBB3) *ptr = data_sz;
         else if (*ptr == 0xCCCCCCCCCCCCCCCC){
-            printf("replace the oep %lx\n", oep-new_entry_point);
-            *ptr = oep - new_entry_point;
+            printf("replace the oep %lx\n", new_entry_point-oep);
+            *ptr = new_entry_point - oep;
         } 
-        else if (*(uint32_t *)ptr == 0xDDDDDDDD) *(uint32_t *)ptr = key;
+        else if (*(uint64_t *)ptr == 0xDDDDDDDDDDDDDDD1){
+            printf("key was replaced ->>>>>>>>>>>>>>>>>>>>>>>>>>>>>> %lu\n", key);
+            *(uint64_t *)ptr = key;
+        }
     }
 }
 
@@ -183,9 +188,9 @@ int read_header(Woody_data *data){
             uint64_t sh_table_start = data->elf64_hdr->e_shoff;
 
             sections Sections;
-            Sections.text = 0;
-            Sections.data = 0;
-            Sections.rodata = 0;
+            Sections.textSize = 0;
+            Sections.dataSize = 0;
+            Sections.roSize = 0;
 
             for (int i = 0; i < num_sections; i++) {
                 // Read Section Header i
@@ -197,34 +202,31 @@ int read_header(Woody_data *data){
 
                 // Check if it is .text or .data or .rodata
                 if (!strcmp(name, ".text")) {
-                    Sections.text = 1;
-                    Sections.textPAddress = *(uint64_t *)(sh_entry + 8);
-                    Sections.textAddress = *(uint64_t *)(sh_entry + 16);
-                    Sections.textSize  = *(uint64_t *)(sh_entry + 32);
+                    Sections.textPAddress = *(uint64_t *)(sh_entry + 0x10);
+                    Sections.textAddress = *(uint64_t *)(sh_entry + 0x18);
+                    Sections.textSize  = *(uint64_t *)(sh_entry + 0x20);
                     printf("text: %lx %lx %lx\n", Sections.textPAddress, Sections.textAddress, Sections.textSize);
 
                     printf("Found %s at offset 0x%lx size 0x%lx\n", name, Sections.textAddress, Sections.textSize);
-                    // encrypt_section(buffer, Sections.textAddress, Sections.textSize, data->key);
+                    encrypt_section(buffer, Sections.textPAddress, Sections.textSize, data->key);
                 }
-                else if (!strcmp(name, ".data")) {
-                    Sections.data = 1;
-                    Sections.dataPAddress = *(uint64_t *)(sh_entry + 8);
-                    Sections.dataAddress = *(uint64_t *)(sh_entry + 16);
-                    Sections.dataSize   = *(uint64_t *)(sh_entry + 32);
-                    printf(".data: %lx %lx %lx\n", Sections.dataPAddress, Sections.dataAddress, Sections.dataSize);
+                // else if (!strcmp(name, ".data")) {
+                //     Sections.dataPAddress = *(uint64_t *)(sh_entry + 0x10);
+                //     Sections.dataAddress = *(uint64_t *)(sh_entry + 0x18);
+                //     Sections.dataSize   = *(uint64_t *)(sh_entry + 0x20);
+                //     printf(".data: %lx %lx %lx\n", Sections.dataPAddress, Sections.dataAddress, Sections.dataSize);
 
-                    printf("Found %s at offset 0x%lx size 0x%lx\n", name, Sections.dataAddress, Sections.dataSize);
-                    // encrypt_section(buffer, Sections.dataAddress, Sections.dataSize, data->key);
-                }
+                //     printf("Found %s at offset 0x%lx size 0x%lx\n", name, Sections.dataAddress, Sections.dataSize);
+                //     encrypt_section(buffer, Sections.dataPAddress, Sections.dataSize, data->key);
+                // }
                 else if (!strcmp(name, ".rodata")) {
-                    Sections.rodata = 1;
-                    Sections.roPAddress = *(uint64_t *)(sh_entry + 8);
-                    Sections.roAddress = *(uint64_t *)(sh_entry + 16);
-                    Sections.roSize    = *(uint64_t *)(sh_entry + 32);
+                    Sections.roPAddress = *(uint64_t *)(sh_entry + 0x10);
+                    Sections.roAddress = *(uint64_t *)(sh_entry + 0x18);
+                    Sections.roSize    = *(uint64_t *)(sh_entry + 0x20);
                     printf("rodata: %lx %lx %lx\n", Sections.roPAddress, Sections.roAddress, Sections.roSize);
 
                     printf("Found %s at offset 0x%lx size 0x%lx\n", name, Sections.roAddress, Sections.roSize);
-                    // encrypt_section(buffer, Sections.roAddress, Sections.roSize, data->key);
+                    encrypt_section(buffer, Sections.roPAddress, Sections.roSize, data->key);
                 }
                 // else if (!strcmp(name, ".symtab ")) {
                 //     Sections.symtab = 1;
@@ -298,8 +300,22 @@ int main(int argc, char **argv)
 
     if (argc >= 3)
         var->key = atoi(argv[2]);
-    else
+    else{
         var->key = 1337;
+        int fd = open("/dev/urandom", O_RDONLY);
+        if (fd < 0)
+        {
+            perror("Error opening /dev/urandom");
+            exit(1);
+        }
+        if (read(fd, &var->key, sizeof(var->key)) <= 0)
+        {
+            perror("Error reading random key");
+            close(fd);
+            exit(1);
+        }
+        close(fd);
+    }
 
     read_header(var);
 
