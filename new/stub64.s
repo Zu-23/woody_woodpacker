@@ -34,6 +34,29 @@ _start:
     test rcx, rcx
     call decrypt_chunk
 
+
+
+
+
+    mov rax, 0xDDDDDDDDDDDDDDD1
+    lea rdi, [rel _start]
+    mov r10 , 0xAAAAAAAAAAAAAAA4
+    sub rdi, r10
+    mov rcx, 0xBBBBBBBBBBBBBBB4  
+    test rcx, rcx
+    call decrypt_chunk
+
+    mov rax, 0xDDDDDDDDDDDDDDD1
+    lea rdi, [rel _start]
+    mov r10 , 0xAAAAAAAAAAAAAAA5
+    sub rdi, r10
+    mov rcx, 0xBBBBBBBBBBBBBBB5  
+    test rcx, rcx
+    call decrypt_chunk
+
+
+
+
     mov rax, 1
     mov rdi, 1
     lea rsi, [rel woody]

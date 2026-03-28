@@ -13,6 +13,7 @@ all: $(NAME)
 
 $(NAME): $(OBJC)
 	$(COMPILER) $(FLAGS) $(OBJC) -o $(NAME)
+	$(ASSAMBLER) $(ASSAMBLER_FLAGS) stub64.s -o stub64.bin
 
 %.o: %.c woody.h
 	$(COMPILER) $(FLAGS) -c $< -o $@
@@ -23,9 +24,9 @@ $(NAME): $(OBJC)
 bonus: $(BONUS_OBJ)
 	$(COMPILER) $(FLAGS) $(BONUS_OBJ) -o $(NAME)
 
-stub64:
-	$(ASSAMBLER) $(ASSAMBLER_FLAGS) stub64.s -o stub64.bin
-	xxd -i stub64.bin
+# stub64:
+# 	$(ASSAMBLER) $(ASSAMBLER_FLAGS) stub64.s -o stub64.bin
+# 	xxd -i stub64.bin
 
 clean:
 	rm -rf $(OBJC) $(BOBJC)
