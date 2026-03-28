@@ -58,9 +58,7 @@ int my_strncmp(unsigned char *dest, unsigned char *src, int size){
 }
 
 void patch_stub(unsigned char *stub, size_t len, uint64_t text_va, uint64_t text_sz, 
-                uint64_t ro_va, uint64_t ro_sz, uint64_t data_va, uint64_t data_sz,
-                uint64_t symtab_va, uint64_t symtab_sz, uint64_t comment_va,
-                uint64_t comment_sz, uint64_t oep, uint64_t key) {
+                uint64_t ro_va, uint64_t ro_sz, uint64_t oep, uint64_t key) {
     printf("text=[%lx] p_dist=[%lx]\n", text_va, oep - new_entry_point);
     for (size_t i = 0; i < len - 8; i++) {
         uint64_t *ptr = (uint64_t *)&stub[i];\
@@ -72,23 +70,8 @@ void patch_stub(unsigned char *stub, size_t len, uint64_t text_va, uint64_t text
             printf("0xAAAAAAAAAAAAAAA2: %lx\n", new_entry_point - ro_va);
             *ptr = (ro_sz == 0) ? 0 : new_entry_point - ro_va;  
         }
-        else if (*ptr == 0xAAAAAAAAAAAAAAA3){
-            printf("0xAAAAAAAAAAAAAAA3: %lx\n", new_entry_point - data_va);
-            *ptr = (data_sz == 0) ? 0 : new_entry_point - data_va;
-        }
-        else if (*ptr == 0xAAAAAAAAAAAAAAA4){
-            printf("0xAAAAAAAAAAAAAAA4: %lx\n", new_entry_point - symtab_va);
-            *ptr = (symtab_sz == 0) ? 0 : new_entry_point - symtab_va;
-        }
-        else if (*ptr == 0xAAAAAAAAAAAAAAA5){
-            printf("0xAAAAAAAAAAAAAAA5: %lx\n", new_entry_point - comment_va);
-            *ptr = (comment_sz == 0) ? 0 : new_entry_point - comment_va;
-        }
         else if (*ptr == 0xBBBBBBBBBBBBBBB1) *ptr = text_sz;
         else if (*ptr == 0xBBBBBBBBBBBBBBB2) *ptr = ro_sz;
-        else if (*ptr == 0xBBBBBBBBBBBBBBB3) *ptr = data_sz;
-        else if (*ptr == 0xBBBBBBBBBBBBBBB4) *ptr = symtab_sz;
-        else if (*ptr == 0xBBBBBBBBBBBBBBB5) *ptr = comment_sz;
         else if (*ptr == 0xCCCCCCCCCCCCCCCC){
             printf("replace the oep %lx\n", new_entry_point-oep);
             *ptr = new_entry_point - oep;
@@ -256,54 +239,13 @@ int read_header(Woody_data *data){
                     printf("Found %s at offset 0x%lx size 0x%lx\n", name, Sections.roAddress, Sections.roSize);
                     encrypt_section(buffer, Sections.roPAddress, Sections.roSize, data->key);
                 }
-                // else if (!strcmp(name, ".data")) {
-                //     Sections.dataPAddress = *(uint64_t *)(sh_entry + 0x10);
-                //     if (Sections.dataPAddress == 0){
-                //         Sections.dataSize = 0;
-                //         printf(".data doesn't exist on disk\n");
-                //     }
-                //     Sections.dataAddress = *(uint64_t *)(sh_entry + 0x18);
-                //     Sections.dataSize   = *(uint64_t *)(sh_entry + 0x20);
-                //     printf(".data: %lx %lx %lx\n", Sections.dataPAddress, Sections.dataAddress, Sections.dataSize);
-
-                //     printf("Found %s at offset 0x%lx size 0x%lx\n", name, Sections.dataAddress, Sections.dataSize);
-                //     encrypt_section(buffer, Sections.dataPAddress, Sections.dataSize, data->key);
-                // }
-                // else if (!strcmp(name, ".symtab")) {
-                //     Sections.symtabPAddress = *(uint64_t *)(sh_entry + 0x10);
-                //     if (Sections.symtabPAddress == 0){
-                //         Sections.symtabSize = 0;
-                //         printf(".symtab doesn't exist on disk\n");
-                //     }
-                //     Sections.symtabAddress = *(uint64_t *)(sh_entry + 0x18);
-                //     Sections.symtabSize    = *(uint64_t *)(sh_entry + 0x20);
-                //     printf("rodata: %lx %lx %lx\n", Sections.symtabPAddress, Sections.symtabSize, Sections.symtabSize);
-
-                //     printf("Found %s at offset 0x%lx size 0x%lx\n", name, Sections.symtabAddress, Sections.symtabSize);
-                //     encrypt_section(buffer, Sections.symtabPAddress, Sections.symtabSize, data->key);
-                // }
-                // else if (!strcmp(name, ".comment")) {
-                //     Sections.commentPAddress = *(uint64_t *)(sh_entry + 0x10);
-                //     if (Sections.commentPAddress == 0){
-                //         Sections.commentSize = 0;
-                //         printf(".comment doesn't exist on disk\n");
-                //     }
-                //     Sections.commentAddress = *(uint64_t *)(sh_entry + 0x18);
-                //     Sections.commentSize    = *(uint64_t *)(sh_entry + 0x20);
-                //     printf("rodata: %lx %lx %lx\n", Sections.commentPAddress, Sections.commentSize, Sections.commentSize);
-
-                //     printf("Found %s at offset 0x%lx size 0x%lx\n", name, Sections.commentAddress, Sections.commentSize);
-                //     encrypt_section(buffer, Sections.commentPAddress, Sections.commentSize, data->key);
-                // }
             }
             // and also point back to the original entry point and that should be all
             *(uint64_t *)(buffer + 24) = new_entry_point;
             // now i need to update my stub address to point to key and adress and size of sections it should decrypt
             stub64_bin = load_stub(1);
             patch_stub(stub64_bin, stub_size, Sections.textAddress, Sections.textSize, 
-            Sections.roAddress, Sections.roSize, Sections.dataAddress, Sections.dataSize,
-            Sections.symtabAddress, Sections.symtabSize, Sections.commentAddress,
-            Sections.commentSize, original_entry_point, data->key);
+            Sections.roAddress, Sections.roSize, original_entry_point, data->key);
             // ofc i will need to add a signature so i don't encrypt more then 1 time
             memcpy(buffer + 8, sig, 6);
             // and later on of course i need to add the compress algo
