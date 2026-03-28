@@ -3,6 +3,22 @@ unsigned char sig[7] = "meljira";
 uint64_t new_entry_point;
 int stub = 0;
 
+void compress_algo(unsigned char *src, size_t src_sz, unsigned char *dest, size_t *dest_sz){
+    size_t i = 0;
+    size_t j = 0;
+
+    while (i < src_sz) {
+        unsigned char count = 1;
+        while (i + 1 < src_sz && src[i] == src[i+1] && count < 255) {
+            count++;
+            i++;
+        }
+        dest[j++] = count;
+        dest[j++] = src[i++];
+    }
+    *dest_sz = j;
+}
+
 unsigned char *load_stub(int type){
     if (type == 1){
         int fd = open("stub64.bin", O_RDONLY);
@@ -28,13 +44,13 @@ unsigned char *load_stub(int type){
     return NULL;
 }
 
-void encrypt_section(unsigned char *buffer, uint64_t offset, uint64_t size, uint64_t key) {
-    for (size_t i = offset; i < offset+size; i++)
-    {
-        ((unsigned char *)buffer)[i] ^= (unsigned char)(key & 0xFF);
-        key = (key >> 8) | (key << 56);
-    }
-}
+// void encrypt_section(unsigned char *buffer, uint64_t offset, uint64_t size, uint64_t key) {
+//     for (size_t i = offset; i < offset+size; i++)
+//     {
+//         ((unsigned char *)buffer)[i] ^= (unsigned char)(key & 0xFF);
+//         key = (key >> 8) | (key << 56);
+//     }
+// }
 
 void my_strcpy(unsigned char *dest, unsigned const char *src, int size){
     while (size > 0) {
@@ -58,7 +74,8 @@ int my_strncmp(unsigned char *dest, unsigned char *src, int size){
 }
 
 void patch_stub(unsigned char *stub, size_t len, uint64_t text_va, uint64_t text_sz, 
-                uint64_t ro_va, uint64_t ro_sz, uint64_t oep, uint64_t key) {
+                uint64_t ro_va, uint64_t ro_sz, uint64_t data_va, uint64_t data_sz,
+                 uint64_t oep, uint64_t key) {
     printf("text=[%lx] p_dist=[%lx]\n", text_va, oep - new_entry_point);
     for (size_t i = 0; i < len - 8; i++) {
         uint64_t *ptr = (uint64_t *)&stub[i];\
@@ -70,8 +87,13 @@ void patch_stub(unsigned char *stub, size_t len, uint64_t text_va, uint64_t text
             printf("0xAAAAAAAAAAAAAAA2: %lx\n", new_entry_point - ro_va);
             *ptr = (ro_sz == 0) ? 0 : new_entry_point - ro_va;  
         }
+        else if (*ptr == 0xAAAAAAAAAAAAAAA3){
+            printf("0xAAAAAAAAAAAAAAA3: %lx\n", new_entry_point - data_va);
+            *ptr = (data_sz == 0) ? 0 : new_entry_point - data_va;  
+        }
         else if (*ptr == 0xBBBBBBBBBBBBBBB1) *ptr = text_sz;
         else if (*ptr == 0xBBBBBBBBBBBBBBB2) *ptr = ro_sz;
+        else if (*ptr == 0xBBBBBBBBBBBBBBB3) *ptr = data_sz;
         else if (*ptr == 0xCCCCCCCCCCCCCCCC){
             printf("replace the oep %lx\n", new_entry_point-oep);
             *ptr = new_entry_point - oep;
@@ -190,6 +212,7 @@ int read_header(Woody_data *data){
 
             uint64_t strtable_header_pos = data->elf64_hdr->e_shoff + (string_table_index * section_header_size);
             
+            
             unsigned char sh_entry[64]; // buffer for one section header
             
             lseek(data->fd, strtable_header_pos, SEEK_SET);
@@ -206,46 +229,56 @@ int read_header(Woody_data *data){
             uint64_t sh_table_start = data->elf64_hdr->e_shoff;
 
             sections Sections;
-            Sections.textSize = 0;
-            Sections.dataSize = 0;
-            Sections.roSize = 0;
-            Sections.symtabSize = 0;
-            Sections.commentSize = 0;
+            Sections.text_sh_size = 0;
+            Sections.ro_sh_size = 0;
+            Sections.data_sh_size = 0;
 
             for (int i = 0; i < num_sections; i++) {
-                // Read Section Header i
                 lseek(data->fd, sh_table_start + (i * section_header_size), SEEK_SET);
                 read(data->fd, sh_entry, 64);
 
-                uint32_t name_idx = *(uint32_t *)(sh_entry + 0);
+                uint32_t name_idx = *(uint32_t *)(sh_entry);
                 char *name = strtab + name_idx;
 
-                // Check if it is .text or .data or .rodata
+                // printf("text: %s %x %x %lx %lx %lx %x %x %lx %lx\n", strtab+*(uint32_t *)(sh_entry), *(uint32_t *)(sh_entry+4),
+                // *(uint32_t *)(sh_entry+8), *(uint64_t *)(sh_entry+0x10), *(uint64_t *)(sh_entry+0x18),
+                // *(uint64_t *)(sh_entry+0x20), *(uint32_t *)(sh_entry+0x28), *(uint32_t *)(sh_entry+0x2c),
+                // *(uint64_t *)(sh_entry+0x30), *(uint64_t *)(sh_entry+0x38));
                 if (!strcmp(name, ".text")) {
-                    Sections.textPAddress = *(uint64_t *)(sh_entry + 0x10);
-                    Sections.textAddress = *(uint64_t *)(sh_entry + 0x18);
-                    Sections.textSize  = *(uint64_t *)(sh_entry + 0x20);
-                    printf("text: %lx %lx %lx\n", Sections.textPAddress, Sections.textAddress, Sections.textSize);
+                    Sections.text_sh_addr = *(uint64_t *)(sh_entry + 0x10);
+                    Sections.text_sh_offset = *(uint64_t *)(sh_entry + 0x18);
+                    Sections.text_sh_size  = *(uint64_t *)(sh_entry + 0x20);
+                    printf("text: %lx %lx %lx\n", Sections.text_sh_addr, Sections.text_sh_offset, Sections.text_sh_size);
 
-                    printf("Found %s at offset 0x%lx size 0x%lx\n", name, Sections.textAddress, Sections.textSize);
-                    encrypt_section(buffer, Sections.textPAddress, Sections.textSize, data->key);
+                    printf("Found %s at offset 0x%lx size 0x%lx\n", name, Sections.text_sh_offset, Sections.text_sh_size);
+                    encrypt_section(buffer, Sections.text_sh_offset, Sections.text_sh_size, data->key);
                 }
                 else if (!strcmp(name, ".rodata")) {
-                    Sections.roPAddress = *(uint64_t *)(sh_entry + 0x10);
-                    Sections.roAddress = *(uint64_t *)(sh_entry + 0x18);
-                    Sections.roSize    = *(uint64_t *)(sh_entry + 0x20);
-                    printf("rodata: %lx %lx %lx\n", Sections.roPAddress, Sections.roAddress, Sections.roSize);
+                    Sections.ro_sh_addr = *(uint64_t *)(sh_entry + 0x10);
+                    Sections.ro_sh_offset = *(uint64_t *)(sh_entry + 0x18);
+                    Sections.ro_sh_size    = *(uint64_t *)(sh_entry + 0x20);
+                    printf("rodata: %lx %lx %lx\n", Sections.ro_sh_addr, Sections.ro_sh_offset, Sections.ro_sh_size);
                     
-                    printf("Found %s at offset 0x%lx size 0x%lx\n", name, Sections.roAddress, Sections.roSize);
-                    encrypt_section(buffer, Sections.roPAddress, Sections.roSize, data->key);
+                    printf("Found %s at offset 0x%lx size 0x%lx\n", name, Sections.ro_sh_offset, Sections.ro_sh_size);
+                    encrypt_section(buffer, Sections.ro_sh_offset, Sections.ro_sh_size, data->key);
+                }
+                else if (!strcmp(name, ".data")) {
+                    Sections.data_sh_addr = *(uint64_t *)(sh_entry + 0x10);
+                    Sections.data_sh_offset = *(uint64_t *)(sh_entry + 0x18);
+                    Sections.data_sh_size    = *(uint64_t *)(sh_entry + 0x20);
+                    printf("rodata: %lx %lx %lx\n", Sections.data_sh_addr, Sections.data_sh_offset, Sections.data_sh_size);
+                    
+                    printf("Found %s at offset 0x%lx size 0x%lx\n", name, Sections.data_sh_offset, Sections.data_sh_size);
+                    encrypt_section(buffer, Sections.data_sh_offset, Sections.data_sh_size, data->key);
                 }
             }
             // and also point back to the original entry point and that should be all
             *(uint64_t *)(buffer + 24) = new_entry_point;
             // now i need to update my stub address to point to key and adress and size of sections it should decrypt
             stub64_bin = load_stub(1);
-            patch_stub(stub64_bin, stub_size, Sections.textAddress, Sections.textSize, 
-            Sections.roAddress, Sections.roSize, original_entry_point, data->key);
+            patch_stub(stub64_bin, stub_size, Sections.text_sh_addr, Sections.text_sh_size, 
+            Sections.ro_sh_addr, Sections.ro_sh_size, Sections.data_sh_addr, Sections.data_sh_size,
+            original_entry_point, data->key);
             // ofc i will need to add a signature so i don't encrypt more then 1 time
             memcpy(buffer + 8, sig, 6);
             // and later on of course i need to add the compress algo

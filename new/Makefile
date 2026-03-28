@@ -5,14 +5,18 @@ FLAGS = -Wall -Wextra -Werror
 SRC_C = main.c 
 ASSAMBLER = nasm
 ASSAMBLER_FLAGS = -f bin
+ALG = encryption.s
+ALGO = encryption.o
 
 OBJC = $(SRC_C:.c=.o)
+
 BONUS_OBJ = $(BONUS_SRC_C:_bonus.c=_bonus.o)
 
 all: $(NAME)
 
 $(NAME): $(OBJC)
-	$(COMPILER) $(FLAGS) $(OBJC) -o $(NAME)
+	$(ASSAMBLER) -f elf64 $(ALG)
+	$(COMPILER) $(FLAGS) $(OBJC) $(ALGO) -o $(NAME)
 	$(ASSAMBLER) $(ASSAMBLER_FLAGS) stub64.s -o stub64.bin
 
 %.o: %.c woody.h
@@ -31,7 +35,10 @@ bonus: $(BONUS_OBJ)
 clean:
 	rm -rf $(OBJC) $(BOBJC)
 
+woody:
+	rm -rf woody
+
 fclean: clean
-	rm -rf $(NAME) stub64.bin stub32.bin
+	rm -rf $(NAME) stub64.bin stub32.bin $(ALGO)
 
 re: fclean all

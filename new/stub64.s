@@ -15,7 +15,6 @@ _start:
     mov r10, 0xAAAAAAAAAAAAAAA1
     sub rdi, r10
     mov rcx, 0xBBBBBBBBBBBBBBB1
-    test rcx, rcx
     call decrypt_chunk 
 
     mov rax, 0xDDDDDDDDDDDDDDD1
@@ -23,14 +22,20 @@ _start:
     mov r10 , 0xAAAAAAAAAAAAAAA2
     sub rdi, r10
     mov rcx, 0xBBBBBBBBBBBBBBB2  
-    test rcx, rcx
+    call decrypt_chunk
+
+    mov rax, 0xDDDDDDDDDDDDDDD1
+    lea rdi, [rel _start]
+    mov r10 , 0xAAAAAAAAAAAAAAA3
+    sub rdi, r10
+    mov rcx, 0xBBBBBBBBBBBBBBB3  
     call decrypt_chunk
 
     mov rax, 1
     mov rdi, 1
     lea rsi, [rel woody]
     mov rdx, 14
-    syscall     
+    syscall
 
     popfq
     pop r11
