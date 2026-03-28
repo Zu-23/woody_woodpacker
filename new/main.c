@@ -1,8 +1,30 @@
 #include "./woody.h"
 unsigned char sig[7] = "meljira";
 uint64_t new_entry_point;
-// uint64_t new_ventry_point;
 int stub = 0;
+
+char *load_stub(int type){
+    if (type == 1){
+        int fd = open("stub64.bin", O_RDONLY);
+        if (fd < 0){
+            write(2, "Error can't open stub64.bin\n", 28);
+            exit(1);
+        }
+        long long size = lseek(fd, 0, SEEK_END);
+        char *buffer = malloc(size+1);
+        if (!buffer){
+            write(2, "Error malloc failed\n", 20);
+            exit(1);
+        }
+        int byte = read(fd, buffer, size);
+        if (byte <= 0){
+            write(2, "Error read failed\n", 20);
+            exit(1);
+        }
+        buffer[size+1] = '\0';
+        return buffer;
+    }
+}
 
 void encrypt_section(unsigned char *buffer, uint64_t offset, uint64_t size, uint64_t key) {
     printf("key=[%lu]\n", key);
@@ -247,6 +269,7 @@ int read_header(Woody_data *data){
             // and also point back to the original entry point and that should be all
             *(uint64_t *)(buffer + 24) = new_entry_point;
             // now i need to update my stub address to point to key and adress and size of sections it should decrypt
+            stub64_bin = load_stub(1);
             patch_stub(stub64_bin, stub_size, Sections.textAddress, Sections.textSize, 
             Sections.roAddress, Sections.roSize, Sections.dataAddress, Sections.dataSize, 
             original_entry_point, data->key);

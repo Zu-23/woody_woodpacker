@@ -31,6 +31,6 @@ clean:
 	rm -rf $(OBJC) $(BOBJC)
 
 fclean: clean
-	rm -rf $(NAME) 
+	rm -rf $(NAME) stub64.bin stub32.bin
 
 re: fclean all
