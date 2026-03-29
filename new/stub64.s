@@ -37,6 +37,13 @@ _start:
     mov rdx, 14
     syscall
 
+    ; my mission i sto compress the text section
+    ;lea rdi, [rel _start]
+    ;mov r10, 0xAAAAAAAAAAAAAAA1
+    ;sub rdi, r10
+    ;mov rcx, 0xBBBBBBBBBBBBBBB1
+    ;call decompress_section
+
     popfq
     pop r11
     pop rcx

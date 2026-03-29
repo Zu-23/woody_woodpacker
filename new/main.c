@@ -170,6 +170,7 @@ int read_header(Woody_data *data){
 
             uint16_t ph_size = *(uint16_t *)(buffer + 54);
             printf("number of segments: %hu\n", ph_num);
+            // iterating all over the segments / program headers
             for (int i = 0; i < ph_num; i++) {
                 // Pointer to current Program Header
                 unsigned char *ph = buffer + ph_off + (i * ph_size);
@@ -189,6 +190,9 @@ int read_header(Woody_data *data){
                     *(uint64_t *)(ph + 16) = 0xc0000000 + size; // virtual address
                     *(uint64_t *)(ph + 24) = 0xc0000000 + size; // phisical address
                     *(uint64_t *)(ph + 32) = stub_size; // stub size
+                    if (*(uint64_t *)(ph + 40) >= (uint64_t)stub_size){
+                        printf("there is enough space left\n");
+                    }
                     *(uint64_t *)(ph + 40) = stub_size; // stub size
                     *(uint64_t *)(ph + 48) = 4096;
                     
@@ -244,6 +248,8 @@ int read_header(Woody_data *data){
                 // *(uint32_t *)(sh_entry+8), *(uint64_t *)(sh_entry+0x10), *(uint64_t *)(sh_entry+0x18),
                 // *(uint64_t *)(sh_entry+0x20), *(uint32_t *)(sh_entry+0x28), *(uint32_t *)(sh_entry+0x2c),
                 // *(uint64_t *)(sh_entry+0x30), *(uint64_t *)(sh_entry+0x38));
+
+                // iterating all over the sections
                 if (!strcmp(name, ".text")) {
                     Sections.text_sh_addr = *(uint64_t *)(sh_entry + 0x10);
                     Sections.text_sh_offset = *(uint64_t *)(sh_entry + 0x18);
