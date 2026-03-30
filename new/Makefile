@@ -2,7 +2,7 @@ NAME = woody_woodpacker
 
 COMPILER = clang
 FLAGS = -Wall -Wextra -Werror
-SRC_C = main.c 
+SRC_C = main.c lookup_table.c compress.c
 ASSAMBLER = nasm
 ASSAMBLER_FLAGS = -f bin
 ALG = encryption.s

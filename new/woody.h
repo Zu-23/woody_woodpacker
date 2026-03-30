@@ -17,9 +17,7 @@ typedef struct
     Elf64_Ehdr *elf64_hdr;
 } Woody_data;
 
-unsigned char *stub64_bin;
 
-int stub_size = 0;
 
 typedef struct {
     uint64_t text_sh_addr; 
@@ -35,6 +33,21 @@ typedef struct {
     uint64_t data_sh_size;
 } sections;
 
+typedef struct s_node{
+    int index;
+    uint64_t address;
+    struct s_node *next;
+} t_node;
+
+typedef struct s_book{
+    unsigned char *buffer;
+    t_node *nodes;
+} t_book;
+
+t_book *create_table(unsigned char *buffer);
+void add_node(t_book *book, int _index, uint64_t _address);
+void compress_algo(unsigned char *src, uint64_t src_sz, unsigned char *dest, int *dest_sz);
+void print_section(unsigned char *section, int size);
 extern void encrypt_section(unsigned char *buffer, uint64_t offset, uint64_t size, uint64_t key);
 
 #endif

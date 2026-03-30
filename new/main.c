@@ -1,23 +1,9 @@
-#include "./woody.h"
+#include "woody.h"
 unsigned char sig[7] = "meljira";
 uint64_t new_entry_point;
 int stub = 0;
-
-void compress_algo(unsigned char *src, size_t src_sz, unsigned char *dest, size_t *dest_sz){
-    size_t i = 0;
-    size_t j = 0;
-
-    while (i < src_sz) {
-        unsigned char count = 1;
-        while (i + 1 < src_sz && src[i] == src[i+1] && count < 255) {
-            count++;
-            i++;
-        }
-        dest[j++] = count;
-        dest[j++] = src[i++];
-    }
-    *dest_sz = j;
-}
+unsigned char *stub64_bin;
+int stub_size = 0;
 
 unsigned char *load_stub(int type){
     if (type == 1){
@@ -258,6 +244,16 @@ int read_header(Woody_data *data){
 
                     printf("Found %s at offset 0x%lx size 0x%lx\n", name, Sections.text_sh_offset, Sections.text_sh_size);
                     encrypt_section(buffer, Sections.text_sh_offset, Sections.text_sh_size, data->key);
+                    // int new_size = 0;
+                    // unsigned char *tmp = NULL;
+                    // tmp = malloc(Sections.text_sh_size+1);
+                    // memset(tmp, 0, Sections.text_sh_size);
+                    // print_section(buffer+Sections.text_sh_offset, Sections.text_sh_size);
+                    // puts("--------------------------------------------------------------");
+                    // compress_algo(buffer+Sections.text_sh_offset, Sections.text_sh_size, tmp, &new_size);
+                    // puts("1");
+                    // print_section(tmp, new_size);
+                    // puts("2");
                 }
                 else if (!strcmp(name, ".rodata")) {
                     Sections.ro_sh_addr = *(uint64_t *)(sh_entry + 0x10);
