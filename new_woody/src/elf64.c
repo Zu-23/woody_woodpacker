@@ -1,4 +1,4 @@
-#include "../woody.h" 
+#include "../woody.h"
 
 void load_stub(t_woody *env)
 {
@@ -32,6 +32,47 @@ int check_magic_elf64(void *file_data)
     }
     return 0;
 }
+
+/////////////////////////test to count space between sections in the RX segment/////////////////////////
+#include <elf.h>
+#include <stdio.h>
+#include <stdint.h>
+#include <stdbool.h>
+
+// Helper to get the name of the section containing a specific file offset
+const char *get_section_name(Elf64_Ehdr *ehdr, uint64_t target_offset, void *map_ptr)
+{
+    Elf64_Shdr *shdr = (Elf64_Shdr *)((uint8_t *)map_ptr + ehdr->e_shoff);
+    char *shstrtab = (char *)map_ptr + shdr[ehdr->e_shstrndx].sh_offset;
+
+    for (int i = 0; i < ehdr->e_shnum; i++)
+    {
+        uint64_t start = shdr[i].sh_offset;
+        uint64_t end = shdr[i].sh_offset + shdr[i].sh_size;
+
+        // Check if the padding starts inside this section
+        if (target_offset >= start && target_offset < end)
+        {
+            return &shstrtab[shdr[i].sh_name];
+        }
+
+        // Check if it's in the gap BETWEEN this section and the next
+        if (i < ehdr->e_shnum - 1)
+        {
+            uint64_t next_start = shdr[i + 1].sh_offset;
+            if (target_offset >= end && target_offset < next_start)
+            {
+                static char gap_name[256];
+                snprintf(gap_name, sizeof(gap_name), "GAP between %s and %s",
+                         &shstrtab[shdr[i].sh_name], &shstrtab[shdr[i + 1].sh_name]);
+                return gap_name;
+            }
+        }
+    }
+    return "Unknown/Outside Sections";
+}
+
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 int parse_elf64(t_woody *env)
 {
@@ -68,32 +109,28 @@ size_t find_cave_elf64(t_woody *env, size_t stub_size) // returns offset of cave
     return 0;
 }
 
-
-
 void patch_stub_64(t_woody *env, uint64_t old_entry, uint64_t new_entry, uint32_t p_encrypt_size)
 {
     uint32_t p_dist = (uint32_t)(new_entry - old_entry);
     uint64_t p_key = env->key;
-    
-    // Changed to - 8 to safely write a 64-bit key
-    for (size_t i = 0; i < env->stub_size - 8; i++) 
+
+    for (size_t i = 0; i < env->stub_size - 8; i++)
     {
         uint32_t *ptr = (uint32_t *)(env->stub + i);
         if (*ptr == 0x11111111)
             *ptr = p_dist;
         else if (*ptr == 0x22222222)
-            *ptr = p_encrypt_size; // Now uses the passed parameter!
+            *ptr = p_encrypt_size;
         else if (*ptr == 0xAAAAAAAA)
             *ptr = (uint32_t)(old_entry - (new_entry + i + 4));
         else if (*ptr == 0x33333333)
         {
             uint64_t *ptr64 = (uint64_t *)(env->stub + i);
-            if (*ptr64 == 0x3333333333333333) 
+            if (*ptr64 == 0x3333333333333333)
                 *ptr64 = p_key;
         }
     }
 }
-
 
 void encrypt_rotate_64(void *data, size_t len, uint64_t key)
 {
@@ -116,14 +153,13 @@ int inject_elf64(t_woody *env, size_t cave_offset)
     ehdr->e_entry = new_entry;
 
     uint64_t entry_file_offset = phdr[ndx].p_offset + (old_entry - phdr[ndx].p_vaddr);
-
     void *code_seg_location = (unsigned char *)env->file_data + entry_file_offset;
     uint64_t encrypt_size = original_size - (old_entry - phdr[ndx].p_vaddr);
     encrypt_rotate_64(code_seg_location, encrypt_size, env->key);
 
     phdr[ndx].p_filesz += env->stub_size;
     phdr[ndx].p_memsz += env->stub_size;
-    phdr[ndx].p_flags |= PF_W; 
+    phdr[ndx].p_flags |= PF_W;
 
     patch_stub_64(env, old_entry, new_entry, (uint32_t)encrypt_size);
     memcpy((unsigned char *)env->file_data + cave_offset, env->stub, env->stub_size);

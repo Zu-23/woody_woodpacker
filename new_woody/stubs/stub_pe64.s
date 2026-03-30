@@ -1,9 +1,11 @@
 BITS 64
+
+extern print_woody    
+
 global _start
 
 section .text
 _start:
-    ; --- 1. Save Windows x64 CPU Context ---
     pushfq
     push rax
     push rcx
@@ -21,12 +23,15 @@ _start:
     push r14
     push r15
 
-    ; --- 2. Setup Decryption ---
+    mov rcx, gs:[0x60]  
+    sub rsp, 0x28       
+    call print_woody    
+    add rsp, 0x28       
     lea rdi, [rel _start]
     
     sub rdi, 0x11111111             ; p_dist
     mov rcx, 0x22222222             ; p_size
-    mov rax, 0x3333333333333333  ; p_key
+    mov rax, 0x3333333333333333     ; p_key
 
 decrypt_loop:
     test rcx, rcx
@@ -40,7 +45,6 @@ decrypt_loop:
     jmp decrypt_loop
 
 done:
-    ; --- 3. Restore CPU Context ---
     pop r15
     pop r14
     pop r13
@@ -58,17 +62,5 @@ done:
     pop rax
     popfq
 
-    ; --- 4. Jump to Host ---
     db 0xE9
     dd 0xAAAAAAAA                   ; p_jmp
-
-    ; --- 5. Boundary Padding ---
-    ; Pushes the placeholder away from EOF so the C loop finds it
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop

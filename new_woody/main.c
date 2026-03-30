@@ -12,8 +12,7 @@ const t_type_handler *types[] = {
     &elf64_type,
     &elf32_type,
     &pe64_type,
-    NULL
-};
+    NULL};
 
 uint64_t generate_key(int argc, char **argv)
 {
@@ -25,6 +24,7 @@ uint64_t generate_key(int argc, char **argv)
             perror("Invalid key provided");
             exit(1);
         }
+        printf("key: %lu\n", key);
         return (key);
     }
     int fd = open("/dev/urandom", O_RDONLY);
@@ -65,73 +65,85 @@ int map_target_file(const char *filename, t_woody *env)
 int save_woody_file(t_woody *env)
 {
 
-    int fd = open("woody", O_CREAT | O_TRUNC | O_WRONLY, 0755);
+    const char *out_name = "woody";
+
+    if (strncmp(env->handler->format_name, "PE", 2) == 0)
+    {
+        out_name = "woody.exe";
+    }
+
+    int fd = open(out_name, O_CREAT | O_TRUNC | O_WRONLY, 0755);
     if (fd < 0)
     {
-        perror("Error creating 'woody' file");
+        perror("Error creating output file");
         return 1;
     }
 
-    if (write(fd, env->file_data, env->file_size) != (ssize_t)env->file_size)
+    size_t final_size = (env->new_file_size > 0) ? env->new_file_size : env->file_size;
+
+    if (write(fd, env->file_data, final_size) != (ssize_t)final_size)
     {
-        perror("Error writing to 'woody' file");
+        perror("Error writing to output file");
         close(fd);
         return 1;
     }
     else
-        printf("Successfully created 'woody'!\n");
+    {
+        printf("Successfully created '%s'!\n", out_name);
+    }
+
     close(fd);
     return 0;
 }
 
-
-
 int main(int argc, char **argv)
 {
-    if (argc != 2)
+
+    if (argc < 2 || argc > 3)
     {
-        perror("Usage: ./woody <target_binary> [encryption_key]");
+        printf("Usage: ./woody <target_binary> [encryption_key]\n");
         return 1;
     }
     t_woody env = {0};
     if (!map_target_file(argv[1], &env))
         return 1;
     env.key = generate_key(argc, argv);
-
     for (int i = 0; types[i] != NULL; i++)
     {
         if (types[i]->check_magic(env.file_data))
         {
-            printf("entered\n");
             env.handler = (t_type_handler *)types[i];
             break;
         }
     }
-
     if (!env.handler)
     {
-        perror("Unsupported file format");
+        printf("Unsupported file format\n");
         munmap(env.file_data, env.file_size);
         exit(1);
     }
     size_t cave_offset = 0;
     printf("type detected: %s\n", env.handler->format_name);
+    void *original_mmap_ptr = env.file_data;
     if (env.handler->parse_headers(&env))
     {
         cave_offset = env.handler->find_cave(&env, env.stub_size);
-
         if (cave_offset > 0)
         {
             env.handler->inject(&env, cave_offset);
+
             if (save_woody_file(&env))
             {
                 perror("Error creating woody file");
-                munmap(env.file_data, env.file_size);
+                if (env.file_data != original_mmap_ptr)
+                    free(env.file_data);
+                munmap(original_mmap_ptr, env.file_size);
                 exit(1);
             }
         }
     }
-    munmap(env.file_data, env.file_size);
-
+    if (env.file_data != original_mmap_ptr)
+        free(env.file_data);
+    munmap(original_mmap_ptr, env.file_size);
     return 0;
 }
