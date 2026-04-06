@@ -59,12 +59,12 @@ int my_strncmp(unsigned char *dest, unsigned char *src, int size){
     return 0;
 }
 
-void patch_stub(unsigned char *stub, size_t len, uint64_t text_va, uint64_t text_sz, 
+void patch_stub(unsigned char *stub, size_t len, uint64_t text_va, uint64_t text_sz, uint64_t text_nsz,
                 uint64_t ro_va, uint64_t ro_sz, uint64_t data_va, uint64_t data_sz,
                  uint64_t oep, uint64_t key) {
     printf("text=[%lx] p_dist=[%lx]\n", text_va, oep - new_entry_point);
     for (size_t i = 0; i < len - 8; i++) {
-        uint64_t *ptr = (uint64_t *)&stub[i];\
+        uint64_t *ptr = (uint64_t *)&stub[i];
         if (*ptr == 0xAAAAAAAAAAAAAAA1){
             printf("0xAAAAAAAAAAAAAAA1: %lx\n", new_entry_point - text_va);
             *ptr = new_entry_point - text_va;
@@ -75,15 +75,16 @@ void patch_stub(unsigned char *stub, size_t len, uint64_t text_va, uint64_t text
         }
         else if (*ptr == 0xAAAAAAAAAAAAAAA3){
             printf("0xAAAAAAAAAAAAAAA3: %lx\n", new_entry_point - data_va);
-            *ptr = (data_sz == 0) ? 0 : new_entry_point - data_va;  
+            *ptr = (data_sz == 0) ? 0 : new_entry_point - data_va;
         }
-        else if (*ptr == 0xBBBBBBBBBBBBBBB1) *ptr = text_sz;
+        else if (*ptr == 0xBBBBBBBBBBBBBBB1) *ptr = text_nsz;
+        else if (*ptr == 0xDDDDDDDDDDDDDDD1) *ptr = text_sz;
         else if (*ptr == 0xBBBBBBBBBBBBBBB2) *ptr = ro_sz;
         else if (*ptr == 0xBBBBBBBBBBBBBBB3) *ptr = data_sz;
         else if (*ptr == 0xCCCCCCCCCCCCCCCC){
             printf("replace the oep %lx\n", new_entry_point-oep);
             *ptr = new_entry_point - oep;
-        } 
+        }
         else if (*(uint64_t *)ptr == 0xDDDDDDDDDDDDDDD1){
             printf("key was replaced ->>>>>>>>>>>>>>>>>>>>>>>>>>>>>> %lu\n", key);
             *(uint64_t *)ptr = key;
@@ -93,34 +94,40 @@ void patch_stub(unsigned char *stub, size_t len, uint64_t text_va, uint64_t text
 
 int read_header(Woody_data *data){
     unsigned char *buffer;
-
+    
     buffer = NULL;
     off_t size = lseek(data->fd, 0, SEEK_END);
     buffer = malloc(size+4096);
     if (!buffer){
-        perror("Error malloc in check_magic_number\n");
+        perror("Error malloc\n");
         return (2);
     }
     lseek(data->fd, 0, SEEK_SET);
     int size2 = read(data->fd, buffer, size);
     if (size2 < 0){
-        perror("Error read failed in check_magic_number\n");
+        perror("Error read failed\n");
         free(buffer);
         return (4);
     }
 
-    
+    t_book *book = create_book(buffer);
+    if (!book){
+        perror("Error malloc\n");
+        exit(1);
+    }
+
+
     if (buffer[0] == 0x7f && buffer[1] == 'E' && buffer[2] == 'L' && buffer[3] == 'F'){ // .ELF
         if (!my_strncmp(buffer+8, sig, 6)){
             // its already packed (:
-            return 0;
+            exit(0);
         }
         if (buffer[4] == 1){
             Elf32_Ehdr *elfHeader = malloc(sizeof(Elf32_Ehdr));
             if (!elfHeader){
-                perror("Error malloc in check_magic_number\n");
+                perror("Error malloc\n");
                 free(buffer);
-                return (2);
+                exit(2);
             }
             
             data->elf32_hdr = elfHeader;
@@ -135,7 +142,7 @@ int read_header(Woody_data *data){
             if (!elfHeader){
                 perror("Error malloc in check_magic_number\n");
                 free(buffer);
-                return (2);
+                exit(2);
             }
 
             data->elf64_hdr = elfHeader;
@@ -172,13 +179,18 @@ int read_header(Woody_data *data){
                     *(uint32_t *)(ph + 0) = 1; // now its pt_load
                     *(uint32_t *)(ph + 4) = 7;
 
+                    // printf("current location %lu\ncurrent virtual address %lu\ncurrent phisical address %lu\ncurrent size file %lu\ncurrent size in memory %lu\nalign requirment %lu\n",
+                    // *(uint64_t *)(ph + 8), *(uint64_t *)(ph + 16), *(uint64_t *)(ph + 24), *(uint64_t *)(ph + 32), *(uint64_t *)(ph + 40),*(uint64_t *)(ph + 48));
                     *(uint64_t *)(ph + 8) = size; // the location of the stub
+                    // *(uint64_t *)(ph + 16) = size; // virtual address
+                    // *(uint64_t *)(ph + 24) = size; // phisical address
+                    // printf("size=[%lu]\n", size);
                     *(uint64_t *)(ph + 16) = 0xc0000000 + size; // virtual address
-                    *(uint64_t *)(ph + 24) = 0xc0000000 + size; // phisical address
+                    *(uint64_t *)(ph + 24) = size; // phisical address
                     *(uint64_t *)(ph + 32) = stub_size; // stub size
-                    if (*(uint64_t *)(ph + 40) >= (uint64_t)stub_size){
-                        printf("there is enough space left\n");
-                    }
+                    // if (*(uint64_t *)(ph + 40) >= (uint64_t)stub_size){
+                    //     printf("there is enough space left\n");
+                    // }
                     *(uint64_t *)(ph + 40) = stub_size; // stub size
                     *(uint64_t *)(ph + 48) = 4096;
                     
@@ -220,6 +232,7 @@ int read_header(Woody_data *data){
 
             sections Sections;
             Sections.text_sh_size = 0;
+            Sections.text_sh_new_size = 0;
             Sections.ro_sh_size = 0;
             Sections.data_sh_size = 0;
 
@@ -243,16 +256,29 @@ int read_header(Woody_data *data){
                     printf("text: %lx %lx %lx\n", Sections.text_sh_addr, Sections.text_sh_offset, Sections.text_sh_size);
 
                     printf("Found %s at offset 0x%lx size 0x%lx\n", name, Sections.text_sh_offset, Sections.text_sh_size);
-                    encrypt_section(buffer, Sections.text_sh_offset, Sections.text_sh_size, data->key);
-                    // int new_size = 0;
-                    // unsigned char *tmp = NULL;
-                    // tmp = malloc(Sections.text_sh_size+1);
-                    // memset(tmp, 0, Sections.text_sh_size);
+                    
+                    unsigned char *tmp = malloc((Sections.text_sh_size*2)+1);
+                    memset(tmp, 0, (Sections.text_sh_size * 2) + 1);
                     // print_section(buffer+Sections.text_sh_offset, Sections.text_sh_size);
                     // puts("--------------------------------------------------------------");
-                    // compress_algo(buffer+Sections.text_sh_offset, Sections.text_sh_size, tmp, &new_size);
-                    // puts("1");
+                    compress_algo(buffer+Sections.text_sh_offset, Sections.text_sh_size, tmp, (int *)&Sections.text_sh_new_size);
+
+                    memcpy(buffer+Sections.text_sh_offset, tmp, Sections.text_sh_new_size);
+                    for (int i = 0;Sections.text_sh_size > (uint64_t)Sections.text_sh_new_size+i;i++){
+                        *(buffer + Sections.text_sh_offset + Sections.text_sh_new_size) = 0;
+                    }
+                    free(tmp);
+                    encrypt_section(buffer, Sections.text_sh_offset, Sections.text_sh_new_size, data->key);
                     // print_section(tmp, new_size);
+                    // printf("original size=[%lu] new size=[%u]\n", Sections.text_sh_size, new_size);
+
+                    // unsigned char *tmp2 = malloc((Sections.text_sh_size)+1);
+                    // int new_size2 = 0;
+                    // decompress_algo(tmp, new_size, tmp2, &new_size2);
+                    // print_section(tmp2, new_size2);
+                    // printf("original size=[%lu] new size=[%u]\n", Sections.text_sh_size, new_size2);
+
+                    // puts("1");
                     // puts("2");
                 }
                 else if (!strcmp(name, ".rodata")) {
@@ -278,7 +304,7 @@ int read_header(Woody_data *data){
             *(uint64_t *)(buffer + 24) = new_entry_point;
             // now i need to update my stub address to point to key and adress and size of sections it should decrypt
             stub64_bin = load_stub(1);
-            patch_stub(stub64_bin, stub_size, Sections.text_sh_addr, Sections.text_sh_size, 
+            patch_stub(stub64_bin, stub_size, Sections.text_sh_addr, Sections.text_sh_size, Sections.text_sh_new_size,
             Sections.ro_sh_addr, Sections.ro_sh_size, Sections.data_sh_addr, Sections.data_sh_size,
             original_entry_point, data->key);
             // ofc i will need to add a signature so i don't encrypt more then 1 time

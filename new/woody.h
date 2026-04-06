@@ -23,6 +23,7 @@ typedef struct {
     uint64_t text_sh_addr; 
     uint64_t text_sh_offset; 
     uint64_t text_sh_size;
+    uint64_t text_sh_new_size;
 
     uint64_t ro_sh_addr;
     uint64_t ro_sh_offset;
@@ -44,9 +45,10 @@ typedef struct s_book{
     t_node *nodes;
 } t_book;
 
-t_book *create_table(unsigned char *buffer);
-void add_node(t_book *book, int _index, uint64_t _address);
-void compress_algo(unsigned char *src, uint64_t src_sz, unsigned char *dest, int *dest_sz);
+t_book *create_book(unsigned char *buffer);
+void add_page(t_book *book, int _index, uint64_t _address);
+void compress_algo(unsigned char *src, int src_sz, unsigned char *dest, int *dest_sz);
+void decompress_algo(unsigned char *src, int src_sz, unsigned char *dest, int *dest_sz);
 void print_section(unsigned char *section, int size);
 extern void encrypt_section(unsigned char *buffer, uint64_t offset, uint64_t size, uint64_t key);
 

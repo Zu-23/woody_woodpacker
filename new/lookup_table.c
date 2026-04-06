@@ -1,6 +1,6 @@
 #include "woody.h"
 
-void add_node(t_book *book, int _index, uint64_t _address){
+void add_page(t_book *book, int _index, uint64_t _address){
     t_node *node = NULL;
     node = malloc(sizeof(t_node));
     if (!node){
@@ -22,7 +22,7 @@ void add_node(t_book *book, int _index, uint64_t _address){
     }
 }
 
-t_book *create_table(unsigned char *buffer){
+t_book *create_book(unsigned char *buffer){
     t_book *book = NULL;
     book = malloc(sizeof(t_book));
     if (!book){
