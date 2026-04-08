@@ -10,12 +10,16 @@ _start:
     push r11
     pushfq 
 
+    ; call msg
+
     mov rax, 0xDDDDDDDDDDDDDDD1
     lea rdi, [rel _start]
     mov r10, 0xAAAAAAAAAAAAAAA1
     sub rdi, r10
     mov rcx, 0xBBBBBBBBBBBBBBB1
     call decrypt_chunk 
+
+    call msg
 
     mov rax, 0xDDDDDDDDDDDDDDD1
     lea rdi, [rel _start]
@@ -24,6 +28,8 @@ _start:
     mov rcx, 0xBBBBBBBBBBBBBBB2  
     call decrypt_chunk
 
+    call msg
+
     mov rax, 0xDDDDDDDDDDDDDDD1
     lea rdi, [rel _start]
     mov r10 , 0xAAAAAAAAAAAAAAA3
@@ -31,31 +37,25 @@ _start:
     mov rcx, 0xBBBBBBBBBBBBBBB3  
     call decrypt_chunk
 
-    mov rax, 1
-    mov rdi, 1
-    lea rsi, [rel woody]
-    mov rdx, 14
-    syscall
-
-    ; call decompress_section
+    call msg
 
     mov rax, 9                   ; sys_mmap
     xor rdi, rdi                 ; addr = NULL
-    mov rsi, 0xDDDDDDDDDDDDDDD1  ; size
+    mov rsi, 0xBBBBBBBBBBBBBBB1  ; size
     mov rdx, 3                   ; PROT_READ | PROT_WRITE
     mov r10, 0x22                ; MAP_PRIVATE | MAP_ANONYMOUS
     mov r8, -1
     xor r9, r9
     syscall
 
-    ; result in rax
+    ; ; result in rax
     mov r12, rax            ; save buffer pointer
+    mov r15, rax        ; <-- save mmap BASE here, never touch r15 again
     
     lea rdi, [rel _start]
     mov r10, 0xAAAAAAAAAAAAAAA1
     sub rdi, r10
-    mov rcx, 0xBBBBBBBBBBBBBBB1
-
+    mov rcx, 0xEEEEEEEEEEEEEEE1
     call decompress
 
     lea rdi, [rel _start]
@@ -63,9 +63,10 @@ _start:
     sub rdi, r10
     mov rcx, 0xBBBBBBBBBBBBBBB1 ; .text size
 
-    sub r12, rcx
-    mov rsi, r12
+    mov rsi, r15        ; <-- use the saved base, not the broken sub
     rep movsb
+
+    call msg
 
     popfq
     pop r11
@@ -81,24 +82,47 @@ _start:
     push rax
     ret
 
+msg:
+    mov rax, 1
+    mov rdi, 1
+    lea rsi, [rel woody]
+    mov rdx, 14
+    syscall
+    ret
+
 decompress:
+    test rcx, rcx
+    jz .done
+    mov r14, rdi
+    add r14, rcx
+
 .loop:
-    mov bl, [rdi]        ; flags
+    cmp rdi, r14
+    jge .done
+
+    mov bl, [rdi]
     inc rdi
-    mov cl, 8            ; 8 items
+    mov dl, 8
+    
 .loop2:
     test bl, 1
     jnz .literal
-    movzx r8d, word [rdi] ; TOKEN
+
+    movzx r8d, byte [rdi]
+    shl r8d, 8
+    movzx r9d, byte [rdi+1]
+    or r8d, r9d
     add rdi, 2
+
     mov r9d, r8d
-    shr r9d, 4            ; offset
+    shr r9d, 4              ; offset = high 12 bits
     mov r10d, r8d
-    and r10d, 0xF
-    add r10d, 3           ; length
+    and r10d, 0xF           ; length - 3 = low 4 bits
+    add r10d, 3
     mov r11d, r10d
     mov r13, r12
     sub r13, r9
+    
 .copy:
     mov al, [r13]
     inc r13
@@ -107,16 +131,20 @@ decompress:
     dec r11d
     jnz .copy
     jmp .next
+    
 .literal:
     mov al, [rdi]
     inc rdi
     mov [r12], al
     inc r12
+    
 .next:
-    shr bl, 1            ; next bit
-    dec cl
+    shr bl, 1
+    dec dl
     jnz .loop2
     jmp .loop
+.done:
+    ret
 
 
 decrypt_chunk:

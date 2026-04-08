@@ -77,8 +77,11 @@ void patch_stub(unsigned char *stub, size_t len, uint64_t text_va, uint64_t text
             printf("0xAAAAAAAAAAAAAAA3: %lx\n", new_entry_point - data_va);
             *ptr = (data_sz == 0) ? 0 : new_entry_point - data_va;
         }
-        else if (*ptr == 0xBBBBBBBBBBBBBBB1) *ptr = text_nsz;
-        else if (*ptr == 0xDDDDDDDDDDDDDDD1) *ptr = text_sz;
+        else if (*ptr == 0xBBBBBBBBBBBBBBB1) *ptr = text_sz;
+        else if (*ptr == 0xEEEEEEEEEEEEEEE1){
+            printf("compressed size %lu\n", text_nsz);
+            *ptr = text_nsz;
+        }
         else if (*ptr == 0xBBBBBBBBBBBBBBB2) *ptr = ro_sz;
         else if (*ptr == 0xBBBBBBBBBBBBBBB3) *ptr = data_sz;
         else if (*ptr == 0xCCCCCCCCCCCCCCCC){
@@ -176,22 +179,38 @@ int read_header(Woody_data *data){
                 if (p_type == 4 && stub == 0) { // pt_note
                     stub = 1;
                     
+                    // 1. Find the highest existing virtual memory address used by the binary
+                    uint64_t highest_vaddr = 0;
+                    for (int j = 0; j < ph_num; j++) {
+                        unsigned char *temp_ph = buffer + ph_off + (j * ph_size);
+                        if (*(uint32_t *)(temp_ph + 0) == 1) { // If it's a PT_LOAD
+                            uint64_t end_vaddr = *(uint64_t *)(temp_ph + 16) + *(uint64_t *)(temp_ph + 40); // p_vaddr + p_memsz
+                            if (end_vaddr > highest_vaddr) {
+                                highest_vaddr = end_vaddr;
+                            }
+                        }
+                    }
+
+                    // 2. Align the highest address to the next Page boundary (4096 / 0x1000)
+                    // This creates a safe "gap" between the original program and your stub
+                    highest_vaddr = (highest_vaddr + 4095) & ~4095;
+
+                    // 3. Apply the Strict Loader Alignment Rule
+                    // p_vaddr % 4096 MUST EQUAL size (p_offset) % 4096
+                    uint64_t safe_vaddr = highest_vaddr + (size % 4096);
+
                     *(uint32_t *)(ph + 0) = 1; // now its pt_load
                     *(uint32_t *)(ph + 4) = 7;
 
                     // printf("current location %lu\ncurrent virtual address %lu\ncurrent phisical address %lu\ncurrent size file %lu\ncurrent size in memory %lu\nalign requirment %lu\n",
                     // *(uint64_t *)(ph + 8), *(uint64_t *)(ph + 16), *(uint64_t *)(ph + 24), *(uint64_t *)(ph + 32), *(uint64_t *)(ph + 40),*(uint64_t *)(ph + 48));
                     *(uint64_t *)(ph + 8) = size; // the location of the stub
-                    // *(uint64_t *)(ph + 16) = size; // virtual address
-                    // *(uint64_t *)(ph + 24) = size; // phisical address
-                    // printf("size=[%lu]\n", size);
-                    *(uint64_t *)(ph + 16) = 0xc0000000 + size; // virtual address
+                    // *(uint64_t *)(ph + 16) = 0xc0000000 + size; // virtual address
+                    *(uint64_t *)(ph + 16) = safe_vaddr; // p_vaddr: Our safely calculated address
+                    *(uint64_t *)(ph + 24) = safe_vaddr; // p_paddr: physical address (usually same as vaddr)
                     *(uint64_t *)(ph + 24) = size; // phisical address
-                    *(uint64_t *)(ph + 32) = stub_size; // stub size
-                    // if (*(uint64_t *)(ph + 40) >= (uint64_t)stub_size){
-                    //     printf("there is enough space left\n");
-                    // }
-                    *(uint64_t *)(ph + 40) = stub_size; // stub size
+                    *(uint64_t *)(ph + 32) = 4096; // stub size
+                    *(uint64_t *)(ph + 40) = 4096; // stub size
                     *(uint64_t *)(ph + 48) = 4096;
                     
                     new_entry_point = *(uint64_t *)(ph + 16);
@@ -253,23 +272,30 @@ int read_header(Woody_data *data){
                     Sections.text_sh_addr = *(uint64_t *)(sh_entry + 0x10);
                     Sections.text_sh_offset = *(uint64_t *)(sh_entry + 0x18);
                     Sections.text_sh_size  = *(uint64_t *)(sh_entry + 0x20);
-                    printf("text: %lx %lx %lx\n", Sections.text_sh_addr, Sections.text_sh_offset, Sections.text_sh_size);
+                    printf("text: %lx %lx %lu\n", Sections.text_sh_addr, Sections.text_sh_offset, Sections.text_sh_size);
 
-                    printf("Found %s at offset 0x%lx size 0x%lx\n", name, Sections.text_sh_offset, Sections.text_sh_size);
+                    printf("Found %s at offset 0x%lx size %lu\n", name, Sections.text_sh_offset, Sections.text_sh_size);
                     
                     unsigned char *tmp = malloc((Sections.text_sh_size*2)+1);
                     memset(tmp, 0, (Sections.text_sh_size * 2) + 1);
-                    // print_section(buffer+Sections.text_sh_offset, Sections.text_sh_size);
-                    // puts("--------------------------------------------------------------");
                     compress_algo(buffer+Sections.text_sh_offset, Sections.text_sh_size, tmp, (int *)&Sections.text_sh_new_size);
+                    printf(".text new size=[%lu]\n", Sections.text_sh_new_size);
+                    print_section(tmp, Sections.text_sh_new_size);
+                    puts("--------------------------------------------------------------");
 
                     memcpy(buffer+Sections.text_sh_offset, tmp, Sections.text_sh_new_size);
-                    for (int i = 0;Sections.text_sh_size > (uint64_t)Sections.text_sh_new_size+i;i++){
-                        *(buffer + Sections.text_sh_offset + Sections.text_sh_new_size) = 0;
+                    for (uint64_t i = 0;Sections.text_sh_size >= Sections.text_sh_new_size+i;i++){
+                        *(buffer + Sections.text_sh_offset + Sections.text_sh_new_size+i) = 0;
+                        printf("current .text size=[%lu]\n", Sections.text_sh_new_size+i);
                     }
                     free(tmp);
-                    encrypt_section(buffer, Sections.text_sh_offset, Sections.text_sh_new_size, data->key);
-                    // print_section(tmp, new_size);
+
+                    print_section(buffer+Sections.text_sh_offset, Sections.text_sh_size);
+                    // puts("--------------------------------------------------------------");
+
+                    encrypt_section(buffer, Sections.text_sh_offset, Sections.text_sh_size, data->key);
+                    
+                    // print_section(buffer+Sections.text_sh_offset, Sections.text_sh_size);
                     // printf("original size=[%lu] new size=[%u]\n", Sections.text_sh_size, new_size);
 
                     // unsigned char *tmp2 = malloc((Sections.text_sh_size)+1);
@@ -277,9 +303,6 @@ int read_header(Woody_data *data){
                     // decompress_algo(tmp, new_size, tmp2, &new_size2);
                     // print_section(tmp2, new_size2);
                     // printf("original size=[%lu] new size=[%u]\n", Sections.text_sh_size, new_size2);
-
-                    // puts("1");
-                    // puts("2");
                 }
                 else if (!strcmp(name, ".rodata")) {
                     Sections.ro_sh_addr = *(uint64_t *)(sh_entry + 0x10);
@@ -304,6 +327,7 @@ int read_header(Woody_data *data){
             *(uint64_t *)(buffer + 24) = new_entry_point;
             // now i need to update my stub address to point to key and adress and size of sections it should decrypt
             stub64_bin = load_stub(1);
+            printf("stub_size=[%u]\n", stub_size);
             patch_stub(stub64_bin, stub_size, Sections.text_sh_addr, Sections.text_sh_size, Sections.text_sh_new_size,
             Sections.ro_sh_addr, Sections.ro_sh_size, Sections.data_sh_addr, Sections.data_sh_size,
             original_entry_point, data->key);
