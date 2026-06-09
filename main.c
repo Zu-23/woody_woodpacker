@@ -99,32 +99,22 @@ int read_header(Woody_data *data){
     unsigned char *buffer;
     
     buffer = NULL;
-    off_t size = lseek(data->fd, 0, SEEK_END);
-    buffer = malloc(size+4096);
+    off_t fileSize = lseek(data->fd, 0, SEEK_END);
+    buffer = malloc(fileSize+4096);
     if (!buffer){
         perror("Error malloc\n");
         return (2);
     }
     lseek(data->fd, 0, SEEK_SET);
-    int size2 = read(data->fd, buffer, size);
+    int size2 = read(data->fd, buffer, fileSize);
     if (size2 < 0){
         perror("Error read failed\n");
         free(buffer);
         return (4);
     }
 
-    t_book *book = create_book(buffer);
-    if (!book){
-        perror("Error malloc\n");
-        exit(1);
-    }
-
-
     if (buffer[0] == 0x7f && buffer[1] == 'E' && buffer[2] == 'L' && buffer[3] == 'F'){ // .ELF
-        if (!my_strncmp(buffer+8, sig, 6)){
-            // its already packed (:
-            exit(0);
-        }
+        if (!my_strncmp(buffer+8, sig, 6)){ exit(0);}
         if (buffer[4] == 1){
             Elf32_Ehdr *elfHeader = malloc(sizeof(Elf32_Ehdr));
             if (!elfHeader){
@@ -132,7 +122,6 @@ int read_header(Woody_data *data){
                 free(buffer);
                 exit(2);
             }
-            
             data->elf32_hdr = elfHeader;
             data->elf32_hdr->e_ident[0] = 1;
             data->elf32_hdr->e_machine = 1;
@@ -141,17 +130,14 @@ int read_header(Woody_data *data){
         else if (buffer[4] == 2){
             Elf64_Ehdr *elfHeader = malloc(sizeof(Elf64_Ehdr));
             uint64_t original_entry_point;
-
             if (!elfHeader){
                 perror("Error malloc in check_magic_number\n");
                 free(buffer);
                 exit(2);
             }
-
             data->elf64_hdr = elfHeader;
             data->elf64_hdr->e_ident[0] = 1;
             data->elf64_hdr->e_machine = 2;
-            // let me save my original entry point
             data->elf64_hdr->e_entry = *(uint64_t *)(buffer + 24);
             original_entry_point = data->elf64_hdr->e_entry;
 
@@ -167,6 +153,200 @@ int read_header(Woody_data *data){
             uint16_t ph_size = *(uint16_t *)(buffer + 54);
             printf("number of segments: %hu\n", ph_num);
             // iterating all over the segments / program headers
+            
+            data->elf64_hdr->e_shoff = *(uint64_t *)(buffer + 40);
+            uint16_t section_header_size = *(uint16_t *)(buffer + 58);
+            uint16_t num_sections = *(uint16_t *)(buffer + 60);
+            uint16_t string_table_index = *(uint16_t *)(buffer + 62);
+
+            printf("size of section header: %d\n", section_header_size);
+            printf("Number of Sections: %d\n", num_sections);
+            printf("offset of string table: %d\n", string_table_index);
+
+            // 1. Point directly to the String Table's Section Header in the buffer
+            uint64_t initial_shoff = *(uint64_t *)(buffer + 40);
+            unsigned char *strtab_hdr = buffer + initial_shoff + (string_table_index * section_header_size);
+
+            // 2. Read the offset and size directly from the pointer (no lseek/read needed)
+            uint64_t strtab_file_offset = *(uint64_t *)(strtab_hdr + 24); // sh_offset is at +24
+            uint64_t strtab_size = *(uint64_t *)(strtab_hdr + 32);        // sh_size is at +32
+
+            // 3. Keep your malloc for the string table data
+            // (We malloc this because when you compress .text and memmove the buffer, 
+            // the physical string table will shift. Having a separate copy in memory 
+            // prevents your section names from getting corrupted during the shift).
+            char *strtab = malloc(strtab_size);
+            lseek(data->fd, strtab_file_offset, SEEK_SET);
+            read(data->fd, strtab, strtab_size);
+
+            sections Sections;
+            Sections.text_sh_size = 0;
+            Sections.text_sh_new_size = 0;
+            Sections.ro_sh_size = 0;
+            Sections.data_sh_size = 0;
+
+            int global_cutsize = 0;
+
+            for (int i = 0; i < num_sections; i++) {
+                // 1. Read the CURRENT section header offset directly from the buffer.
+                // We read this inside the loop because when you compress .text and subtract 
+                // cutsize from buffer+40, the next iterations must use the new, shifted offset!
+                uint64_t current_shoff = *(uint64_t *)(buffer + 40);
+
+                // 2. Point sh_entry directly to the correct header inside the buffer
+                unsigned char *sh_entry = buffer + current_shoff + (i * section_header_size);
+
+                // Get the name of the section (no changes needed here)
+                uint32_t name_idx = *(uint32_t *)(sh_entry);
+                char *name = strtab + name_idx;
+
+                // printf("text: %s %x %x %lx %lx %lx %x %x %lx %lx\n", strtab+*(uint32_t *)(sh_entry), *(uint32_t *)(sh_entry+4),
+                // *(uint32_t *)(sh_entry+8), *(uint64_t *)(sh_entry+0x10), *(uint64_t *)(sh_entry+0x18),
+                // *(uint64_t *)(sh_entry+0x20), *(uint32_t *)(sh_entry+0x28), *(uint32_t *)(sh_entry+0x2c),
+                // *(uint64_t *)(sh_entry+0x30), *(uint64_t *)(sh_entry+0x38));
+
+                // iterating all over the sections
+                if (!strcmp(name, ".text")) {
+                    Sections.text_sh_addr = *(uint64_t *)(sh_entry + 0x10);
+                    Sections.text_sh_offset = *(uint64_t *)(sh_entry + 0x18);
+                    Sections.text_sh_size  = *(uint64_t *)(sh_entry + 0x20);
+                    printf("text: %lx %lx %lu\n", Sections.text_sh_addr, Sections.text_sh_offset, Sections.text_sh_size);
+
+                    printf("Found %s at offset 0x%lx size %lu\n", name, Sections.text_sh_offset, Sections.text_sh_size);
+                    
+                    unsigned char *tmp = malloc((Sections.text_sh_size*2)+1);
+                    memset(tmp, 0, (Sections.text_sh_size * 2) + 1);
+
+                    // print_section(buffer+Sections.text_sh_offset, Sections.text_sh_size);
+                    compress_algo(buffer+Sections.text_sh_offset, Sections.text_sh_size, tmp, (int *)&Sections.text_sh_new_size);
+                    puts("--------------------------------------------------------------");
+                    printf(".text new size=[%lu]\n", Sections.text_sh_new_size);
+                    
+                    print_section(tmp, Sections.text_sh_new_size);
+                    // int cutsize = Sections.text_sh_size - Sections.text_sh_new_size;
+                    // global_cutsize = cutsize;
+                    // *(buffer + Sections.text_sh_size) = cutsize;
+
+                    memcpy(buffer+Sections.text_sh_offset, tmp, Sections.text_sh_new_size);
+                    for (uint64_t i = 0;Sections.text_sh_size >= Sections.text_sh_new_size+i;i++){
+                        *(buffer + Sections.text_sh_offset + Sections.text_sh_new_size+i) = 0;
+                        printf("current .text size=[%lu]\n", Sections.text_sh_new_size+i);
+                    }
+                    free(tmp);
+
+                    // puts("--------------------------------------------------------------");
+
+                    encrypt_section(buffer, Sections.text_sh_offset, Sections.text_sh_size, data->key);
+                    // uint64_t rest_of_file_start = Sections.text_sh_offset + Sections.text_sh_size;
+                    // uint64_t rest_of_file_size = fileSize - rest_of_file_start;
+
+                    // Shift the rest of the file left by 'cutsize'
+                    // memmove(buffer + Sections.text_sh_offset + Sections.text_sh_new_size, 
+                    //         buffer + rest_of_file_start, 
+                    //         rest_of_file_size);
+                    // fileSize -= cutsize;
+                    // *(uint64_t *)(buffer + 40) -= cutsize;
+
+
+                    // Extract Program Header table information from the main ELF header
+                    // uint64_t phoff = *(uint64_t *)(buffer + 32);     // e_phoff
+                    // uint16_t phentsize = *(uint16_t *)(buffer + 54); // e_phentsize (usually 56 bytes)
+                    // uint16_t phnum = *(uint16_t *)(buffer + 56);     // e_phnum
+
+                    // // Iterate through all Program Headers
+                    // for (int i = 0; i < phnum; i++) {
+                    //     unsigned char *phdr = buffer + phoff + (i * phentsize);
+                        
+                    //     uint32_t p_type = *(uint32_t *)phdr;                  // offset 0x00
+                    //     uint64_t p_offset = *(uint64_t *)(phdr + 0x08);       // offset 0x08
+                    //     uint64_t p_filesz = *(uint64_t *)(phdr + 0x20);       // offset 0x20
+
+                    //     // We only care about loadable segments
+                    //     if (p_type == 1) { // 1 == PT_LOAD
+                            
+                    //         // 1. Check if this segment ENCAPSULATES the .text section
+                    //         if (p_offset <= Sections.text_sh_offset && 
+                    //         (p_offset + p_filesz) >= (Sections.text_sh_offset + Sections.text_sh_size)) {
+                                
+                    //             printf("Found the .text PT_LOAD segment at index %d\n", i);
+                    //             // Shrink the physical file size of the segment
+                    //             *(uint64_t *)(phdr + 0x20) -= cutsize;
+                    //         }
+                            
+                    //         // 2. Check if this segment comes physically AFTER the .text section
+                    //         else if (p_offset > Sections.text_sh_offset) {
+                                
+                    //             // Because you used memmove to pull the file left, 
+                    //             // you must pull this segment's starting offset left too.
+                    //             *(uint64_t *)(phdr + 0x08) -= cutsize; 
+                    //         }
+                    //     }
+                    // }
+
+                    // print_section(buffer+Sections.text_sh_offset, Sections.text_sh_size);
+                    // printf("original size=[%lu] new size=[%u]\n", Sections.text_sh_size, new_size);
+
+                    // unsigned char *tmp2 = malloc((Sections.text_sh_size)+1);
+                    // int new_size2 = 0;
+                    // decompress_algo(tmp, new_size, tmp2, &new_size2);
+                    // print_section(tmp2, new_size2);
+                    // printf("original size=[%lu] new size=[%u]\n", Sections.text_sh_size, new_size2);
+                }
+                else if (!strcmp(name, ".rodata")) {
+                    Sections.ro_sh_addr = *(uint64_t *)(sh_entry + 0x10);
+                    Sections.ro_sh_offset = *(uint64_t *)(sh_entry + 0x18);
+
+                    // IF .rodata came physically AFTER .text, it was shifted left by memmove!
+                    if (Sections.ro_sh_offset > Sections.text_sh_offset) {
+                        Sections.ro_sh_offset -= global_cutsize; 
+                    }
+
+                    // printf("rodata: %lx %lx %lx\n", Sections.ro_sh_addr, Sections.ro_sh_offset, Sections.ro_sh_size);
+                    
+                    // printf("Found %s at offset 0x%lx size 0x%lx\n", name, Sections.ro_sh_offset, Sections.ro_sh_size);
+                    Sections.ro_sh_size    = *(uint64_t *)(sh_entry + 0x20);
+                    encrypt_section(buffer, Sections.ro_sh_offset, Sections.ro_sh_size, data->key);
+                }
+                else if (!strcmp(name, ".data")) {
+                    Sections.data_sh_addr = *(uint64_t *)(sh_entry + 0x10);
+                    Sections.data_sh_offset = *(uint64_t *)(sh_entry + 0x18);
+                    // printf("rodata: %lx %lx %lx\n", Sections.data_sh_addr, Sections.data_sh_offset, Sections.data_sh_size);
+                    
+                     // IF .data came physically AFTER .text, it was shifted left by memmove!
+                    if (Sections.data_sh_offset > Sections.text_sh_offset) {
+                        Sections.data_sh_offset -= global_cutsize; 
+                    }
+
+                    // printf("Found %s at offset 0x%lx size 0x%lx\n", name, Sections.data_sh_offset, Sections.data_sh_size);
+                    Sections.data_sh_size    = *(uint64_t *)(sh_entry + 0x20);
+                    encrypt_section(buffer, Sections.data_sh_offset, Sections.data_sh_size, data->key);
+                }
+            }
+
+            uint64_t highest_physical_offset = 0;
+            uint16_t phnum = *(uint16_t *)(buffer + 56);
+            uint64_t phoff = *(uint64_t *)(buffer + 32);
+            uint16_t phentsize = *(uint16_t *)(buffer + 54);
+
+            for (int i = 0; i < phnum; i++) {
+                unsigned char *phdr = buffer + phoff + (i * phentsize);
+                uint32_t p_type = *(uint32_t *)phdr;
+                
+                // Check loadable segments and dynamic linking segments
+                if (p_type == 1 || p_type == 2) { // PT_LOAD or PT_DYNAMIC
+                    uint64_t p_offset = *(uint64_t *)(phdr + 0x08);
+                    uint64_t p_filesz = *(uint64_t *)(phdr + 0x20);
+                    
+                    uint64_t segment_end = p_offset + p_filesz;
+                    if (segment_end > highest_physical_offset) {
+                        highest_physical_offset = segment_end;
+                    }
+                }
+            }
+
+            // Completely discard anything past the highest PT_LOAD segment
+            fileSize = highest_physical_offset;
+
             for (int i = 0; i < ph_num; i++) {
                 // Pointer to current Program Header
                 unsigned char *ph = buffer + ph_off + (i * ph_size);
@@ -197,18 +377,18 @@ int read_header(Woody_data *data){
 
                     // 3. Apply the Strict Loader Alignment Rule
                     // p_vaddr % 4096 MUST EQUAL size (p_offset) % 4096
-                    uint64_t safe_vaddr = highest_vaddr + (size % 4096);
+                    uint64_t safe_vaddr = highest_vaddr + (fileSize % 4096);
 
                     *(uint32_t *)(ph + 0) = 1; // now its pt_load
                     *(uint32_t *)(ph + 4) = 7;
 
                     // printf("current location %lu\ncurrent virtual address %lu\ncurrent phisical address %lu\ncurrent size file %lu\ncurrent size in memory %lu\nalign requirment %lu\n",
                     // *(uint64_t *)(ph + 8), *(uint64_t *)(ph + 16), *(uint64_t *)(ph + 24), *(uint64_t *)(ph + 32), *(uint64_t *)(ph + 40),*(uint64_t *)(ph + 48));
-                    *(uint64_t *)(ph + 8) = size; // the location of the stub
+                    *(uint64_t *)(ph + 8) = fileSize; // the location of the stub
                     // *(uint64_t *)(ph + 16) = 0xc0000000 + size; // virtual address
                     *(uint64_t *)(ph + 16) = safe_vaddr; // p_vaddr: Our safely calculated address
                     *(uint64_t *)(ph + 24) = safe_vaddr; // p_paddr: physical address (usually same as vaddr)
-                    *(uint64_t *)(ph + 24) = size; // phisical address
+                    *(uint64_t *)(ph + 24) = fileSize; // phisical address
                     *(uint64_t *)(ph + 32) = 4096; // stub size
                     *(uint64_t *)(ph + 40) = 4096; // stub size
                     *(uint64_t *)(ph + 48) = 4096;
@@ -218,109 +398,6 @@ int read_header(Woody_data *data){
                 }
                 else if (p_type == 4){
                     *(uint32_t *)(ph + 0) = 0; // now its pt_null
-                }
-            }
-            data->elf64_hdr->e_shoff = *(uint64_t *)(buffer + 40);
-
-            uint16_t section_header_size = *(uint16_t *)(buffer + 58);
-            printf("size of section header: %d\n", section_header_size);
-            
-            uint16_t num_sections = *(uint16_t *)(buffer + 60);
-            printf("Number of Sections: %d\n", num_sections);
-
-            uint16_t string_table_index = *(uint16_t *)(buffer + 62);
-            printf("offset of string table: %d\n", string_table_index);
-
-            uint64_t strtable_header_pos = data->elf64_hdr->e_shoff + (string_table_index * section_header_size);
-            
-            
-            unsigned char sh_entry[64]; // buffer for one section header
-            
-            lseek(data->fd, strtable_header_pos, SEEK_SET);
-            read(data->fd, sh_entry, 64);
-
-            // get file offset of string table (sh_offset is at +24 or 0x18 in 64-bit SH)
-            uint64_t strtab_file_offset = *(uint64_t *)(sh_entry + 24);
-            uint64_t strtab_size = *(uint64_t *)(sh_entry + 32); // sh_size at +32
-
-            char *strtab = malloc(strtab_size);
-            lseek(data->fd, strtab_file_offset, SEEK_SET);
-            read(data->fd, strtab, strtab_size);
-
-            uint64_t sh_table_start = data->elf64_hdr->e_shoff;
-
-            sections Sections;
-            Sections.text_sh_size = 0;
-            Sections.text_sh_new_size = 0;
-            Sections.ro_sh_size = 0;
-            Sections.data_sh_size = 0;
-
-            for (int i = 0; i < num_sections; i++) {
-                lseek(data->fd, sh_table_start + (i * section_header_size), SEEK_SET);
-                read(data->fd, sh_entry, 64);
-
-                uint32_t name_idx = *(uint32_t *)(sh_entry);
-                char *name = strtab + name_idx;
-
-                // printf("text: %s %x %x %lx %lx %lx %x %x %lx %lx\n", strtab+*(uint32_t *)(sh_entry), *(uint32_t *)(sh_entry+4),
-                // *(uint32_t *)(sh_entry+8), *(uint64_t *)(sh_entry+0x10), *(uint64_t *)(sh_entry+0x18),
-                // *(uint64_t *)(sh_entry+0x20), *(uint32_t *)(sh_entry+0x28), *(uint32_t *)(sh_entry+0x2c),
-                // *(uint64_t *)(sh_entry+0x30), *(uint64_t *)(sh_entry+0x38));
-
-                // iterating all over the sections
-                if (!strcmp(name, ".text")) {
-                    Sections.text_sh_addr = *(uint64_t *)(sh_entry + 0x10);
-                    Sections.text_sh_offset = *(uint64_t *)(sh_entry + 0x18);
-                    Sections.text_sh_size  = *(uint64_t *)(sh_entry + 0x20);
-                    printf("text: %lx %lx %lu\n", Sections.text_sh_addr, Sections.text_sh_offset, Sections.text_sh_size);
-
-                    printf("Found %s at offset 0x%lx size %lu\n", name, Sections.text_sh_offset, Sections.text_sh_size);
-                    
-                    unsigned char *tmp = malloc((Sections.text_sh_size*2)+1);
-                    memset(tmp, 0, (Sections.text_sh_size * 2) + 1);
-                    compress_algo(buffer+Sections.text_sh_offset, Sections.text_sh_size, tmp, (int *)&Sections.text_sh_new_size);
-                    printf(".text new size=[%lu]\n", Sections.text_sh_new_size);
-                    print_section(tmp, Sections.text_sh_new_size);
-                    puts("--------------------------------------------------------------");
-
-                    memcpy(buffer+Sections.text_sh_offset, tmp, Sections.text_sh_new_size);
-                    for (uint64_t i = 0;Sections.text_sh_size >= Sections.text_sh_new_size+i;i++){
-                        *(buffer + Sections.text_sh_offset + Sections.text_sh_new_size+i) = 0;
-                        printf("current .text size=[%lu]\n", Sections.text_sh_new_size+i);
-                    }
-                    free(tmp);
-
-                    print_section(buffer+Sections.text_sh_offset, Sections.text_sh_size);
-                    // puts("--------------------------------------------------------------");
-
-                    encrypt_section(buffer, Sections.text_sh_offset, Sections.text_sh_size, data->key);
-                    
-                    // print_section(buffer+Sections.text_sh_offset, Sections.text_sh_size);
-                    // printf("original size=[%lu] new size=[%u]\n", Sections.text_sh_size, new_size);
-
-                    // unsigned char *tmp2 = malloc((Sections.text_sh_size)+1);
-                    // int new_size2 = 0;
-                    // decompress_algo(tmp, new_size, tmp2, &new_size2);
-                    // print_section(tmp2, new_size2);
-                    // printf("original size=[%lu] new size=[%u]\n", Sections.text_sh_size, new_size2);
-                }
-                else if (!strcmp(name, ".rodata")) {
-                    Sections.ro_sh_addr = *(uint64_t *)(sh_entry + 0x10);
-                    Sections.ro_sh_offset = *(uint64_t *)(sh_entry + 0x18);
-                    Sections.ro_sh_size    = *(uint64_t *)(sh_entry + 0x20);
-                    printf("rodata: %lx %lx %lx\n", Sections.ro_sh_addr, Sections.ro_sh_offset, Sections.ro_sh_size);
-                    
-                    printf("Found %s at offset 0x%lx size 0x%lx\n", name, Sections.ro_sh_offset, Sections.ro_sh_size);
-                    encrypt_section(buffer, Sections.ro_sh_offset, Sections.ro_sh_size, data->key);
-                }
-                else if (!strcmp(name, ".data")) {
-                    Sections.data_sh_addr = *(uint64_t *)(sh_entry + 0x10);
-                    Sections.data_sh_offset = *(uint64_t *)(sh_entry + 0x18);
-                    Sections.data_sh_size    = *(uint64_t *)(sh_entry + 0x20);
-                    printf("rodata: %lx %lx %lx\n", Sections.data_sh_addr, Sections.data_sh_offset, Sections.data_sh_size);
-                    
-                    printf("Found %s at offset 0x%lx size 0x%lx\n", name, Sections.data_sh_offset, Sections.data_sh_size);
-                    encrypt_section(buffer, Sections.data_sh_offset, Sections.data_sh_size, data->key);
                 }
             }
             // and also point back to the original entry point and that should be all
@@ -336,9 +413,9 @@ int read_header(Woody_data *data){
             // and later on of course i need to add the compress algo
 
             // append the stub to the buffer
-            my_strcpy(buffer+size, stub64_bin, stub_size);
+            my_strcpy(buffer+fileSize, stub64_bin, stub_size);
             // 3. Write back to file
-            off_t size = lseek(data->fd, 0, SEEK_END);
+            // off_t size = lseek(data->fd, 0, SEEK_END);
             int fd = open("woody", O_WRONLY | O_CREAT | O_TRUNC, 0755);
             if (fd < 0){
                 perror("Unable to open file");
@@ -346,7 +423,12 @@ int read_header(Woody_data *data){
                 free(buffer);
                 exit(2);
             }
-            write(fd, buffer, size+stub_size);
+            // Completely orphan the Section Header Table
+            *(uint64_t *)(buffer + 40) = 0; // e_shoff
+            *(uint16_t *)(buffer + 58) = 0; // e_shentsize
+            *(uint16_t *)(buffer + 60) = 0; // e_shnum
+            *(uint16_t *)(buffer + 62) = 0; // e_shstrndx
+            write(fd, buffer, fileSize+stub_size);
             free(strtab);
         }
         free(buffer);

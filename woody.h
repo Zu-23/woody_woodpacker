@@ -40,13 +40,6 @@ typedef struct s_node{
     struct s_node *next;
 } t_node;
 
-typedef struct s_book{
-    unsigned char *buffer;
-    t_node *nodes;
-} t_book;
-
-t_book *create_book(unsigned char *buffer);
-void add_page(t_book *book, int _index, uint64_t _address);
 void compress_algo(unsigned char *src, int src_sz, unsigned char *dest, int *dest_sz);
 void decompress_algo(unsigned char *src, int src_sz, unsigned char *dest, int *dest_sz);
 void print_section(unsigned char *section, int size);

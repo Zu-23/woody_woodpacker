@@ -2,7 +2,7 @@ NAME = woody_woodpacker
 
 COMPILER = clang
 FLAGS = -Wall -Wextra -Werror
-SRC_C = main.c lookup_table.c compress.c
+SRC_C = main.c compress.c
 ASSAMBLER = nasm
 ASSAMBLER_FLAGS = -f bin
 ALG = encryption.s
@@ -39,6 +39,6 @@ woody:
 	rm -rf woody
 
 fclean: clean
-	rm -rf $(NAME) stub64.bin stub32.bin $(ALGO)
+	rm -rf $(NAME) stub64.bin stub32.bin $(ALGO) woody
 
 re: fclean all
