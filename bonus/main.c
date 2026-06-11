@@ -1,9 +1,31 @@
 #include "woody.h"
-unsigned char sig[7] = "meljira";
+unsigned char sig[8] = "mel-jira";
 uint64_t new_entry_point;
 int stub = 0;
 unsigned char *stub64_bin;
 int stub_size = 0;
+
+void ft_perror(const char *errorMsg){
+    while (*errorMsg){
+        write(2, &*errorMsg++, 1);
+    }
+}
+
+static	void	ft_printHex(uint64_t nbr)
+{
+	char	*lowerhex;
+
+	lowerhex = "0123456789ABCDEF";
+	if (nbr > 15)
+		ft_printHex(nbr / 16);
+    write(1, &lowerhex[nbr % 16], 1);
+}
+
+void ft_print(const char *str){
+    while (*str){
+        write(1, &*str++, 1);
+    }
+}
 
 unsigned char *load_stub(int type){
     if (type == 1){
@@ -30,14 +52,6 @@ unsigned char *load_stub(int type){
     return NULL;
 }
 
-// void encrypt_section(unsigned char *buffer, uint64_t offset, uint64_t size, uint64_t key) {
-//     for (size_t i = offset; i < offset+size; i++)
-//     {
-//         ((unsigned char *)buffer)[i] ^= (unsigned char)(key & 0xFF);
-//         key = (key >> 8) | (key << 56);
-//     }
-// }
-
 void my_strcpy(unsigned char *dest, unsigned const char *src, int size){
     while (size > 0) {
         *dest = *src;
@@ -45,18 +59,6 @@ void my_strcpy(unsigned char *dest, unsigned const char *src, int size){
         src++;
         size--;
     }
-}
-
-int my_strncmp(unsigned char *dest, unsigned char *src, int size){
-    while (size > 0){
-        if (*dest != *src){
-            return 1;
-        }
-        dest++;
-        src++;
-        size--;
-    }
-    return 0;
 }
 
 void patch_stub(unsigned char *stub, size_t len, uint64_t text_va, uint64_t text_sz, uint64_t text_nsz,
@@ -114,20 +116,16 @@ int read_header(Woody_data *data){
     }
 
     if (buffer[0] == 0x7f && buffer[1] == 'E' && buffer[2] == 'L' && buffer[3] == 'F'){ // .ELF
-        if (!my_strncmp(buffer+8, sig, 6)){ exit(0);}
-        if (buffer[4] == 1){
-            Elf32_Ehdr *elfHeader = malloc(sizeof(Elf32_Ehdr));
-            if (!elfHeader){
-                perror("Error malloc\n");
-                free(buffer);
-                exit(2);
-            }
-            data->elf32_hdr = elfHeader;
-            data->elf32_hdr->e_ident[0] = 1;
-            data->elf32_hdr->e_machine = 1;
-            data->elf32_hdr->e_entry = *(uint32_t *)(buffer + 24);
+        if (buffer[8] == 0x6d && buffer[9] == 0x65 && buffer[10] == 0x6c && buffer[11] == 0x2d &&
+            buffer[12] == 0x6a && buffer[13] == 0x69 && buffer[14] == 0x72 && buffer[15] == 0x61){
+            ft_perror("this is a packed binary by mel-jira packer(:\n");
+            exit(0);
         }
         else if (buffer[4] == 2){
+            ft_print("key_value: ");
+            ft_printHex(data->key);
+            ft_print("\n");
+
             Elf64_Ehdr *elfHeader = malloc(sizeof(Elf64_Ehdr));
             uint64_t original_entry_point;
             if (!elfHeader){
@@ -290,7 +288,7 @@ int read_header(Woody_data *data){
             Sections.ro_sh_addr, Sections.ro_sh_size, Sections.data_sh_addr, Sections.data_sh_size,
             original_entry_point, data->key);
     
-            memcpy(buffer + 8, sig, 6);
+            memcpy(buffer + 8, sig, 8);
 
             my_strcpy(buffer+fileSize, stub64_bin, stub_size);
             // 3. Write back to file

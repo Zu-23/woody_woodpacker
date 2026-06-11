@@ -2,7 +2,7 @@ NAME = woody_woodpacker
 
 COMPILER = clang
 FLAGS = -Wall -Wextra -Werror
-SRC_C = main.c compress.c
+SRC_C = main.c
 ASSAMBLER = nasm
 ASSAMBLER_FLAGS = -f bin
 ALG = encryption.s
@@ -15,22 +15,11 @@ BONUS_OBJ = $(BONUS_SRC_C:_bonus.c=_bonus.o)
 all: $(NAME)
 
 $(NAME): $(OBJC)
-	$(ASSAMBLER) -f elf64 $(ALG)
-	$(COMPILER) $(FLAGS) $(OBJC) $(ALGO) -o $(NAME)
+	$(COMPILER) $(FLAGS) $(OBJC)  -o $(NAME)
 	$(ASSAMBLER) $(ASSAMBLER_FLAGS) stub64.s -o stub64.bin
 
 %.o: %.c woody.h
 	$(COMPILER) $(FLAGS) -c $< -o $@
-
-%_bonus.o: %_bonus.c tools.h
-	$(COMPILER) $(FLAGS) -c $< -o $@
-
-bonus: $(BONUS_OBJ)
-	$(COMPILER) $(FLAGS) $(BONUS_OBJ) -o $(NAME)
-
-# stub64:
-# 	$(ASSAMBLER) $(ASSAMBLER_FLAGS) stub64.s -o stub64.bin
-# 	xxd -i stub64.bin
 
 clean:
 	rm -rf $(OBJC) $(BOBJC)
@@ -39,6 +28,6 @@ woody:
 	rm -rf woody
 
 fclean: clean
-	rm -rf $(NAME) stub64.bin stub32.bin $(ALGO) woody
+	rm -rf $(NAME) stub64.bin stub32.bin woody
 
 re: fclean all

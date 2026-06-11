@@ -10,7 +10,27 @@ _start:
     push r11
     pushfq 
 
-    ; call msg
+    ; ----------------------------------------------------
+    ; ANTI-VM: CPUID Hypervisor Check
+    ; ----------------------------------------------------
+    mov eax, 1              ; Request CPU feature flags
+    cpuid                   ; Execute the hardware instruction
+    
+    bt ecx, 31              ; Bit Test: Check the 31st bit of ECX
+    jc vm_detected         ; If the bit is 1 (Carry Flag set), we are in a VM!
+
+    ; ----------------------------------------------------
+    ; ANTI-DEBUGGING: ptrace(PTRACE_TRACEME, 0, 0, 0)
+    ; ----------------------------------------------------
+    mov rax, 101            ; syscall number for sys_ptrace
+    xor rdi, rdi            ; arg 1: PTRACE_TRACEME (0)
+    xor rsi, rsi            ; arg 2: NULL
+    xor rdx, rdx            ; arg 3: NULL
+    xor r10, r10            ; arg 4: NULL
+    syscall
+
+    test rax, rax           ; Check the return value
+    jl debugger_detected   ; If less than 0 (error), jump to exit
 
     mov rax, 0xDDDDDDDDDDDDDDD1
     lea rdi, [rel _start]
@@ -19,8 +39,6 @@ _start:
     mov rcx, 0xBBBBBBBBBBBBBBB1
     call decrypt_chunk 
 
-    call msg
-
     mov rax, 0xDDDDDDDDDDDDDDD1
     lea rdi, [rel _start]
     mov r10 , 0xAAAAAAAAAAAAAAA2
@@ -28,16 +46,12 @@ _start:
     mov rcx, 0xBBBBBBBBBBBBBBB2  
     call decrypt_chunk
 
-    call msg
-
     mov rax, 0xDDDDDDDDDDDDDDD1
     lea rdi, [rel _start]
     mov r10 , 0xAAAAAAAAAAAAAAA3
     sub rdi, r10
     mov rcx, 0xBBBBBBBBBBBBBBB3  
     call decrypt_chunk
-
-    call msg
 
     mov rax, 9                   ; sys_mmap
     xor rdi, rdi                 ; addr = NULL
@@ -81,6 +95,28 @@ _start:
     sub rax, r10
     push rax
     ret
+
+debugger_detected:
+    mov rax, 1
+    mov rdi, 1
+    lea rsi, [rel debugger]
+    mov rdx, 23
+    syscall
+    ; Intentionally kill the process to protect the payload
+    mov rax, 60             ; syscall number for sys_exit
+    mov rdi, 1            ; Return an angry exit code
+    syscall
+
+vm_detected:
+    mov rax, 1
+    mov rdi, 1
+    lea rsi, [rel virtualmc]
+    mov rdx, 19
+    syscall
+    ; Intentionally kill the process
+    mov rax, 60             ; syscall: sys_exit
+    mov rdi, 2            ; Angry exit code
+    syscall
 
 msg:
     mov rax, 1
@@ -264,3 +300,5 @@ decrypt_chunk:
     ret
     
 woody: db "....WOODY....", 10
+debugger: db "Debugger was detected!", 10
+virtualmc: db "Running inside VM!", 10
